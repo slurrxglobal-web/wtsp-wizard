@@ -1,0 +1,32 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment & Credentials
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# WhatsApp Multi-Session Auth Stores (CRITICAL: Never commit auth tokens)
+sessions/
+auth_info/
+auth_info_multi/
+*.data.json
+*.session
+
+# Build & Logs
+dist/
+build/
+out/
+logs/
+*.log
+
+# OS & IDE metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
