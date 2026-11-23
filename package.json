@@ -1,0 +1,29 @@
+{
+  "name": "wtsp-wizard",
+  "version": "1.0.0",
+  "description": "Multi-Session WhatsApp Orchestrator & Action Mirror",
+  "main": "src/server/app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server/app.js",
+    "dev": "node --watch src/server/app.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "automation",
+    "multi-session",
+    "orchestrator",
+    "action-mirror"
+  ],
+  "author": "Slurrx Global",
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.12",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.1"
+  }
+}

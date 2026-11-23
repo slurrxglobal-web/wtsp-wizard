@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wtsp Wizard — Multi-Session WhatsApp Orchestrator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="top-nav">
+      <div class="brand">
+        <span class="brand-icon">🧙‍♂️</span>
+        <div class="brand-text">
+          <h1>Wtsp Wizard</h1>
+          <p class="subtitle">Multi-Account Puppet & Action Mirror Orchestrator</p>
+        </div>
+      </div>
+      <div class="header-metrics">
+        <div class="metric-pill">
+          <span class="dot connected-pulse"></span>
+          <span id="activeSessionsCount">0 Connected</span>
+        </div>
+        <div class="metric-pill secondary">
+          <span id="totalSessionsCount">0 Total Accounts</span>
+        </div>
+        <button id="addSessionQuickBtn" class="btn btn-primary btn-sm">+ Add Account</button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="dashboard-grid">
+      <!-- Left Column: Master Control Room -->
+      <section class="panel control-panel">
+        <div class="panel-header">
+          <h2>⚡ Master Control Room</h2>
+          <span class="badge live-badge">MIRROR ACTIVE</span>
+        </div>
+
+        <!-- Mode Tabs -->
+        <div class="tab-group">
+          <button class="tab-btn active" data-tab="tab-message">📢 Broadcast Message</button>
+          <button class="tab-btn" data-tab="tab-group">👥 Join Group</button>
+          <button class="tab-btn" data-tab="tab-react">🔥 Emoji Reaction</button>
+        </div>
+
+        <!-- Tab 1: Message Broadcast -->
+        <div id="tab-message" class="tab-content active">
+          <div class="form-group">
+            <label for="msgTarget">Target Recipient (Phone Number or Group JID)</label>
+            <input type="text" id="msgTarget" placeholder="e.g. 919876543210 or group JID" class="form-input">
+            <small class="hint">Includes country code without + or symbols.</small>
+          </div>
+
+          <div class="form-group">
+            <div class="label-row">
+              <label for="msgText">Message Payload (Spintax Supported)</label>
+              <span class="spintax-pill">{Hello|Hi|Hey}</span>
+            </div>
+            <textarea id="msgText" rows="4" placeholder="{Hello|Hi|Hey} bro, this is a synchronized message from all active accounts!" class="form-input"></textarea>
+            <small class="hint">Use <code>{Option A|Option B|Option C}</code> to randomize text for each account.</small>
+          </div>
+
+          <div class="settings-grid">
+            <div class="form-group">
+              <label for="minDelay">Min Delay (s)</label>
+              <input type="number" id="minDelay" value="1.0" step="0.5" min="0.5" class="form-input">
+            </div>
+            <div class="form-group">
+              <label for="maxDelay">Max Delay (s)</label>
+              <input type="number" id="maxDelay" value="2.5" step="0.5" min="1.0" class="form-input">
+            </div>
+          </div>
+
+          <div class="checkbox-group">
+            <label class="switch-container">
+              <input type="checkbox" id="simulateTyping" checked>
+              <span class="switch-slider"></span>
+              <span class="switch-label">Simulate human typing indicator before dispatch</span>
+            </label>
+          </div>
+
+          <button id="dispatchMessageBtn" class="btn btn-action btn-block">
+            🚀 Fire Action Mirror Across Accounts
+          </button>
+        </div>
+
+        <!-- Tab 2: Group Join -->
+        <div id="tab-group" class="tab-content">
+          <div class="form-group">
+            <label for="groupInvite">WhatsApp Group Invite Link</label>
+            <input type="text" id="groupInvite" placeholder="https://chat.whatsapp.com/XXXXX..." class="form-input">
+          </div>
+          <button id="dispatchJoinBtn" class="btn btn-action btn-block">
+            👥 Join Group Across All Accounts
+          </button>
+        </div>
+
+        <!-- Tab 3: Reaction Mirror -->
+        <div id="tab-react" class="tab-content">
+          <div class="form-group">
+            <label for="reactTarget">Chat Number / JID</label>
+            <input type="text" id="reactTarget" placeholder="Target chat JID" class="form-input">
+          </div>
+          <div class="form-group">
+            <label for="reactMsgId">Target Message ID</label>
+            <input type="text" id="reactMsgId" placeholder="Message ID e.g. 3EB0..." class="form-input">
+          </div>
+          <div class="form-group">
+            <label>Select Reaction Emoji</label>
+            <div class="emoji-picker">
+              <button class="emoji-btn" data-emoji="❤️">❤️</button>
+              <button class="emoji-btn active" data-emoji="👍">👍</button>
+              <button class="emoji-btn" data-emoji="🔥">🔥</button>
+              <button class="emoji-btn" data-emoji="🚀">🚀</button>
+              <button class="emoji-btn" data-emoji="😂">😂</button>
+              <button class="emoji-btn" data-emoji="🎉">🎉</button>
+            </div>
+          </div>
+          <button id="dispatchReactBtn" class="btn btn-action btn-block">
+            ✨ Mirror Reaction
+          </button>
+        </div>
+
+        <!-- Live Activity Log Terminal -->
+        <div class="terminal-panel">
+          <div class="terminal-header">
+            <span>📡 Execution Telemetry & Audit Log</span>
+            <button id="clearLogsBtn" class="btn-text">Clear</button>
+          </div>
+          <div id="terminalLogs" class="terminal-logs">
+            <div class="log-entry info">[System] Wtsp Wizard ready. Connect accounts below to start mirroring.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Account Fleet Grid -->
+      <section class="panel sessions-panel">
+        <div class="panel-header">
+          <div>
+            <h2>📱 Accounts Fleet (20+ Capacity)</h2>
+            <p class="subtitle">Independent WebSocket Sessions via Baileys</p>
+          </div>
+          <button id="batchAddBtn" class="btn btn-outline btn-sm">+ Add 5 Accounts</button>
+        </div>
+
+        <div id="sessionsGrid" class="sessions-grid">
+          <!-- Session Cards dynamically injected here -->
+        </div>
+      </section>
+    </main>
+
+    <!-- QR Code Modal -->
+    <div id="qrModal" class="modal-backdrop">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 id="modalSessionTitle">Pair WhatsApp Account</h3>
+          <button id="closeModalBtn" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="qr-wrapper">
+            <img id="qrImage" src="" alt="Scan WhatsApp QR">
+            <div class="qr-scan-line"></div>
+          </div>
+          <p class="qr-instructions">
+            1. Open WhatsApp on your phone<br>
+            2. Tap <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong><br>
+            3. Point your phone at this screen
+          </p>
+          <div id="qrStatusText" class="status-pill status-connecting">Waiting for QR...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
