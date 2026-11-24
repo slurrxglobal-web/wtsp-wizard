@@ -36,6 +36,17 @@ app.get('/api/sessions', (req, res) => {
   res.json({ success: true, sessions: sessionManager.getAllSessions() });
 });
 
+app.get('/api/sessions/:id/chats', (req, res) => {
+  const { id } = req.params;
+  res.json({ success: true, chats: sessionManager.getSanitizedChats(id) });
+});
+
+app.get('/api/sessions/:id/messages', (req, res) => {
+  const { id } = req.params;
+  const { jid } = req.query;
+  res.json({ success: true, messages: sessionManager.getSanitizedMessages(id, jid) });
+});
+
 app.post('/api/sessions', async (req, res) => {
   const { id, label } = req.body;
   if (!id) return res.status(400).json({ error: 'id is required' });

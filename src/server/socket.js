@@ -24,10 +24,20 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher) {
     io.emit('action_completed', data);
   });
 
+  sessionManager.on('chats_updated', ({ id, chats }) => {
+    io.emit('chats_updated', { id, chats });
+  });
+
+  sessionManager.on('messages_updated', ({ id, messages }) => {
+    io.emit('messages_updated', { id, messages });
+  });
+
   io.on('connection', (socket) => {
-    // Send full current session list on connect
+    // Send full current session list and real chats on connect
     socket.emit('initial_state', {
-      sessions: sessionManager.getAllSessions()
+      sessions: sessionManager.getAllSessions(),
+      chats: sessionManager.getAllChats(),
+      messages: sessionManager.getAllMessages()
     });
 
     // Create / Start session

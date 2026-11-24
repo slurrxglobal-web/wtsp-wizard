@@ -7,16 +7,34 @@ let currentQRModalId = null;
 let masterSessionId = null;
 let selectedEmoji = '❤️';
 
-// Mock contacts for realistic in-phone WhatsApp interface
-const MOCK_CONTACTS = [
-  { id: 'contact_1', name: 'Alpha Ops Team', avatar: 'AO', phone: '919876543210', lastMsg: 'Synchronized broadcast ready.', time: '10:41' },
-  { id: 'contact_2', name: 'VIP Leads Global', avatar: 'VL', phone: '919812345678', lastMsg: 'Campaign dispatched successfully.', time: '10:35' },
-  { id: 'contact_3', name: 'Beta Community Hub', avatar: 'BC', phone: '919765432100', lastMsg: 'Group joined.', time: '09:58' },
-  { id: 'contact_4', name: 'Support Node Direct', avatar: 'SN', phone: '919988776655', lastMsg: 'Standing by for instructions.', time: '09:20' }
-];
-
-// Per-instance active conversation state
+// Real WhatsApp Chat and Message Stores synced from Baileys
+const realChatsState = new Map(); // sessionId -> Array of real chats [{ id, name, lastMsg, time, unread }]
+const realMessagesState = new Map(); // sessionId -> Object { jid: Array of messages }
 const instanceChatState = new Map(); // sessionId -> { activeContact: null, messages: [] }
+
+function getAvatarInitials(name) {
+  if (!name) return 'WA';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
+}
+
+function getSessionChats(sessionId) {
+  const chats = realChatsState.get(sessionId);
+  if (chats && Array.isArray(chats) && chats.length > 0) {
+    return chats.map(c => ({
+      id: c.id,
+      name: c.name || c.id.split('@')[0],
+      avatar: getAvatarInitials(c.name || c.id),
+      phone: c.id.replace(/\D/g, ''),
+      lastMsg: c.lastMsg || '',
+      time: c.time || ''
+    }));
+  }
+  return [];
+}
 
 // DOM Elements
 const totalUnitsCountEl = document.getElementById('totalUnitsCount');
@@ -192,18 +210,29 @@ function renderDeviceGrid() {
 
           <!-- View A: Chats List View -->
           <div class="wa-chats-view ${state.activeContact ? 'hidden' : ''}" id="chats-view-${session.id}" style="${state.activeContact ? 'display: none;' : ''}">
-            ${MOCK_CONTACTS.map((c, cIdx) => `
-              <div class="wa-chat-item ${state.activeContact?.id === c.id ? 'active' : ''}" data-session="${session.id}" data-contact-idx="${cIdx}">
-                <div class="chat-avatar">${c.avatar}</div>
-                <div class="chat-info">
-                  <div class="chat-name-row">
-                    <span class="chat-name">${c.name}</span>
-                    <span class="chat-time">${c.time}</span>
+            ${(() => {
+              const chats = getSessionChats(session.id);
+              if (chats.length === 0) {
+                return `
+                  <div style="padding: 30px 12px; text-align: center; color: var(--text-muted); font-size: 10px;">
+                    <p style="font-weight: 500; color: var(--text-secondary);">Syncing Real WhatsApp Chats...</p>
+                    <p style="margin-top: 4px; font-size: 8px;">Recent chats appear automatically.</p>
                   </div>
-                  <div class="chat-last-msg">${c.lastMsg}</div>
+                `;
+              }
+              return chats.map((c, cIdx) => `
+                <div class="wa-chat-item ${state.activeContact?.id === c.id ? 'active' : ''}" data-session="${session.id}" data-contact-idx="${cIdx}">
+                  <div class="chat-avatar">${c.avatar}</div>
+                  <div class="chat-info">
+                    <div class="chat-name-row">
+                      <span class="chat-name">${c.name}</span>
+                      <span class="chat-time">${c.time}</span>
+                    </div>
+                    <div class="chat-last-msg">${c.lastMsg || 'Tap to open chat'}</div>
+                  </div>
                 </div>
-              </div>
-            `).join('')}
+              `).join('');
+            })()}
           </div>
 
           <!-- View B: Conversation Screen -->
@@ -318,14 +347,18 @@ function attachInteractiveEvents() {
     item.addEventListener('click', () => {
       const sessionId = item.getAttribute('data-session');
       const contactIdx = parseInt(item.getAttribute('data-contact-idx'), 10);
-      const contact = MOCK_CONTACTS[contactIdx];
+      const chats = getSessionChats(sessionId);
+      const contact = chats[contactIdx];
+      if (!contact) return;
 
       // If clicked on Master phone, mirror open to ALL devices!
       if (sessionId === masterSessionId) {
-        logFeed(`Master selected [${contact.name}] -> Synchronizing all devices.`);
+        logFeed(`Master opened [${contact.name}] -> Synchronizing all devices.`);
         sessionsState.forEach((s) => {
           if (s.status === 'connected') {
-            openConversationView(s.id, contact);
+            const sChats = getSessionChats(s.id);
+            const targetContact = sChats[contactIdx] || contact;
+            openConversationView(s.id, targetContact);
           }
         });
       } else {
@@ -410,17 +443,38 @@ function attachInteractiveEvents() {
 function openConversationView(sessionId, contact) {
   const state = instanceChatState.get(sessionId) || { activeContact: null, messages: [] };
   state.activeContact = contact;
+
+  // Retrieve real historical messages for this contact if available
+  const realMsgs = realMessagesState.get(sessionId)?.[contact.id];
+  if (realMsgs && Array.isArray(realMsgs) && realMsgs.length > 0) {
+    state.messages = realMsgs;
+  } else {
+    state.messages = [
+      { text: `Chat with ${contact.name}`, type: 'incoming', time: 'now' }
+    ];
+  }
   instanceChatState.set(sessionId, state);
 
   const chatsView = document.getElementById(`chats-view-${sessionId}`);
   const convView = document.getElementById(`conv-view-${sessionId}`);
   const titleEl = document.getElementById(`conv-title-${sessionId}`);
   const avatarEl = document.getElementById(`conv-avatar-${sessionId}`);
+  const msgsContainer = document.getElementById(`conv-msgs-${sessionId}`);
 
   if (chatsView) chatsView.style.display = 'none';
   if (convView) convView.classList.add('active');
   if (titleEl) titleEl.textContent = contact.name;
   if (avatarEl) avatarEl.textContent = contact.avatar;
+
+  if (msgsContainer) {
+    msgsContainer.innerHTML = state.messages.map(m => `
+      <div class="msg-bubble ${m.type}">
+        ${m.text}
+        <div class="msg-meta">${m.time} &#10003;&#10003;</div>
+      </div>
+    `).join('');
+    msgsContainer.scrollTop = msgsContainer.scrollHeight;
+  }
 }
 
 function closeConversationView(sessionId) {
@@ -458,7 +512,7 @@ function handleSendMessage(sourceSessionId) {
 
     // Also dispatch to actual WhatsApp recipient via backend!
     const activeContact = instanceChatState.get(sourceSessionId)?.activeContact;
-    const targetPhone = activeContact ? activeContact.phone : targetRecipientInput.value.trim();
+    const targetPhone = activeContact ? (activeContact.id || activeContact.phone) : targetRecipientInput.value.trim();
 
     if (targetPhone) {
       socket.emit('mirror_send', {
@@ -473,6 +527,18 @@ function handleSendMessage(sourceSessionId) {
     // Send single from slave
     appendMessageToScreen(sourceSessionId, text, 'outgoing', time);
     inputEl.value = '';
+    const activeContact = instanceChatState.get(sourceSessionId)?.activeContact;
+    const targetPhone = activeContact ? (activeContact.id || activeContact.phone) : targetRecipientInput.value.trim();
+    if (targetPhone) {
+      socket.emit('mirror_send', {
+        target: targetPhone,
+        message: text,
+        sessionIds: [sourceSessionId],
+        minDelay: 500,
+        maxDelay: 1000,
+        simulateTyping: true
+      });
+    }
   }
 }
 
@@ -511,11 +577,31 @@ closePhoneModalBtn.addEventListener('click', () => {
 });
 
 // 10. Socket.io Handlers
-socket.on('initial_state', ({ sessions }) => {
+socket.on('initial_state', ({ sessions, chats, messages }) => {
   sessionsState.clear();
   sessions.forEach(s => sessionsState.set(s.id, s));
+  if (chats) {
+    for (const [id, chatList] of Object.entries(chats)) {
+      realChatsState.set(id, chatList);
+    }
+  }
+  if (messages) {
+    for (const [id, msgMap] of Object.entries(messages)) {
+      realMessagesState.set(id, msgMap);
+    }
+  }
   renderDeviceGrid();
-  logFeed(`Loaded ${sessions.length} device instances.`);
+  logFeed(`Loaded ${sessions.length} device instances with real chat sync.`);
+});
+
+socket.on('chats_updated', ({ id, chats }) => {
+  realChatsState.set(id, chats);
+  renderDeviceGrid();
+});
+
+socket.on('messages_updated', ({ id, messages }) => {
+  realMessagesState.set(id, messages);
+  renderDeviceGrid();
 });
 
 socket.on('session_update', (session) => {

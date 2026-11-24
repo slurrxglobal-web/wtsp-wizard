@@ -10,6 +10,20 @@ import makeWASocket, {
   Browsers
 } from '@whiskeysockets/baileys';
 
+function extractMessageText(message) {
+  if (!message) return '';
+  return (
+    message.conversation ||
+    message.extendedTextMessage?.text ||
+    message.imageMessage?.caption ||
+    message.videoMessage?.caption ||
+    (message.buttonsResponseMessage ? message.buttonsResponseMessage.selectedDisplayText : '') ||
+    (message.templateButtonReplyMessage ? message.templateButtonReplyMessage.selectedDisplayText : '') ||
+    (message.reactionMessage ? `Reacted: ${message.reactionMessage.text}` : '') ||
+    ''
+  );
+}
+
 export class SessionManager extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -74,6 +88,9 @@ export class SessionManager extends EventEmitter {
       user: null,
       qr: null,
       sock: null,
+      chats: new Map(),
+      contacts: new Map(),
+      messages: new Map(),
       createdAt: Date.now(),
       retryCount: 0
     };
@@ -182,6 +199,115 @@ export class SessionManager extends EventEmitter {
         }
       });
 
+      // Sync Contacts
+      sock.ev.on('contacts.upsert', (newContacts) => {
+        for (const c of newContacts) {
+          if (c.id) {
+            sessionData.contacts.set(c.id, {
+              id: c.id,
+              name: c.name || c.notify || c.verifiedName || ''
+            });
+          }
+        }
+        this.emit('chats_updated', { id: sessionId, chats: this.getSanitizedChats(sessionId) });
+      });
+
+      // Initial History Sync from WhatsApp
+      sock.ev.on('messaging-history.set', ({ chats, contacts, messages }) => {
+        if (contacts) {
+          for (const c of contacts) {
+            if (c.id) sessionData.contacts.set(c.id, { id: c.id, name: c.name || c.notify || '' });
+          }
+        }
+        if (chats) {
+          for (const ch of chats) {
+            if (ch.id) {
+              const contact = sessionData.contacts.get(ch.id);
+              const name = contact?.name || ch.name || ch.id.split('@')[0];
+              sessionData.chats.set(ch.id, {
+                id: ch.id,
+                name: name,
+                time: ch.conversationTimestamp ? new Date(Number(ch.conversationTimestamp) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+                unread: ch.unreadCount || 0,
+                lastMsg: ''
+              });
+            }
+          }
+        }
+        if (messages) {
+          for (const m of messages) {
+            const jid = m.key.remoteJid;
+            if (!jid) continue;
+            const text = extractMessageText(m.message);
+            if (text) {
+              if (!sessionData.messages.has(jid)) sessionData.messages.set(jid, []);
+              const msgList = sessionData.messages.get(jid);
+              const time = m.messageTimestamp ? new Date(Number(m.messageTimestamp) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+              msgList.push({
+                id: m.key.id,
+                text,
+                type: m.key.fromMe ? 'outgoing' : 'incoming',
+                time
+              });
+              const existingChat = sessionData.chats.get(jid);
+              if (existingChat) {
+                existingChat.lastMsg = text;
+                if (time) existingChat.time = time;
+              }
+            }
+          }
+        }
+        this.emit('chats_updated', { id: sessionId, chats: this.getSanitizedChats(sessionId) });
+      });
+
+      // Updated or new incoming chats
+      sock.ev.on('chats.upsert', (newChats) => {
+        for (const ch of newChats) {
+          if (!ch.id) continue;
+          const contact = sessionData.contacts.get(ch.id);
+          const name = contact?.name || ch.name || ch.id.split('@')[0];
+          const existing = sessionData.chats.get(ch.id) || {};
+          sessionData.chats.set(ch.id, {
+            id: ch.id,
+            name: name || existing.name || ch.id.split('@')[0],
+            time: ch.conversationTimestamp ? new Date(Number(ch.conversationTimestamp) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : existing.time || '',
+            unread: ch.unreadCount || 0,
+            lastMsg: existing.lastMsg || ''
+          });
+        }
+        this.emit('chats_updated', { id: sessionId, chats: this.getSanitizedChats(sessionId) });
+      });
+
+      // Live Messages
+      sock.ev.on('messages.upsert', ({ messages: newMessages }) => {
+        for (const m of newMessages) {
+          const jid = m.key.remoteJid;
+          if (!jid) continue;
+          const text = extractMessageText(m.message);
+          if (!text) continue;
+
+          if (!sessionData.messages.has(jid)) sessionData.messages.set(jid, []);
+          const msgList = sessionData.messages.get(jid);
+          const time = m.messageTimestamp ? new Date(Number(m.messageTimestamp) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+          msgList.push({
+            id: m.key.id,
+            text,
+            type: m.key.fromMe ? 'outgoing' : 'incoming',
+            time
+          });
+
+          const contact = sessionData.contacts.get(jid);
+          const name = contact?.name || jid.split('@')[0];
+          const existing = sessionData.chats.get(jid) || { id: jid, name };
+          existing.lastMsg = text;
+          if (time) existing.time = time;
+          sessionData.chats.set(jid, existing);
+        }
+        this.emit('chats_updated', { id: sessionId, chats: this.getSanitizedChats(sessionId) });
+        this.emit('messages_updated', { id: sessionId, messages: this.getSanitizedMessages(sessionId) });
+      });
+
       return sessionData;
     } catch (err) {
       sessionData.status = 'error';
@@ -288,5 +414,52 @@ export class SessionManager extends EventEmitter {
       }
     }
     return connected;
+  }
+
+  /**
+   * Returns sanitized real chats list for a session.
+   */
+  getSanitizedChats(sessionId) {
+    const s = this.sessions.get(sessionId);
+    if (!s || !s.chats) return [];
+    return Array.from(s.chats.values()).slice(0, 50);
+  }
+
+  /**
+   * Returns messages for a session.
+   */
+  getSanitizedMessages(sessionId, jid = null) {
+    const s = this.sessions.get(sessionId);
+    if (!s || !s.messages) return jid ? [] : {};
+    if (jid) {
+      return s.messages.get(jid) || [];
+    }
+    const result = {};
+    for (const [chatId, msgs] of s.messages) {
+      result[chatId] = msgs.slice(-50);
+    }
+    return result;
+  }
+
+  /**
+   * Returns chats across all sessions.
+   */
+  getAllChats() {
+    const result = {};
+    for (const [id] of this.sessions) {
+      result[id] = this.getSanitizedChats(id);
+    }
+    return result;
+  }
+
+  /**
+   * Returns all messages across all sessions.
+   */
+  getAllMessages() {
+    const result = {};
+    for (const [id] of this.sessions) {
+      result[id] = this.getSanitizedMessages(id);
+    }
+    return result;
   }
 }
