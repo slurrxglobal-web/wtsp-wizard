@@ -1,4 +1,4 @@
-// Socket.io Real-Time Connection
+// Studio Socket.io Client
 const socket = io();
 
 // State
@@ -6,7 +6,7 @@ let sessionsState = new Map();
 let currentQRModalId = null;
 let selectedEmoji = '❤️';
 
-// Samsung model names to match the phone farm aesthetic in the reel
+// Supported Android Models for realism
 const DEVICE_MODELS = [
   'SM-G986N', 'SM-A325N', 'SM-N981N', 'SM-A528N', 'SM-G781N',
   'SM-A336N', 'SM-A346N', 'SM-G988N', 'SM-S908N', 'SM-S918N'
@@ -15,16 +15,18 @@ const DEVICE_MODELS = [
 // DOM Elements
 const totalUnitsCountEl = document.getElementById('totalUnitsCount');
 const activeUnitsCountEl = document.getElementById('activeUnitsCount');
-const phoneFarmGridEl = document.getElementById('phoneFarmGrid');
-const tickerLogsEl = document.getElementById('tickerLogs');
+const activeFilterCountEl = document.getElementById('activeFilterCount');
 const fleetStatusTextEl = document.getElementById('fleetStatusText');
+const phoneFarmGridEl = document.getElementById('phoneFarmGrid');
+const feedStreamEl = document.getElementById('feedStream');
+const themeSelectorEl = document.getElementById('themeSelector');
 
-// Commander Drawer Elements
-const commanderDrawerEl = document.getElementById('commanderDrawer');
-const toggleMasterConsoleBtn = document.getElementById('toggleMasterConsoleBtn');
-const closeDrawerBtn = document.getElementById('closeDrawerBtn');
+// Console Drawer Elements
+const commandConsoleEl = document.getElementById('commandConsole');
+const toggleConsoleBtn = document.getElementById('toggleConsoleBtn');
+const collapseConsoleBtn = document.getElementById('collapseConsoleBtn');
 
-// Action Inputs
+// Action Inputs & Buttons
 const targetRecipientInput = document.getElementById('targetRecipient');
 const broadcastMessageInput = document.getElementById('broadcastMessage');
 const minJitterInput = document.getElementById('minJitter');
@@ -34,12 +36,12 @@ const groupInviteLinkInput = document.getElementById('groupInviteLink');
 const reactChatJidInput = document.getElementById('reactChatJid');
 const reactMessageIdInput = document.getElementById('reactMessageId');
 
-// Buttons
 const fireBroadcastBtn = document.getElementById('fireBroadcastBtn');
 const fireGroupJoinBtn = document.getElementById('fireGroupJoinBtn');
 const fireReactBtn = document.getElementById('fireReactBtn');
 const addSingleUnitBtn = document.getElementById('addSingleUnitBtn');
 const addBatchUnitsBtn = document.getElementById('addBatchUnitsBtn');
+const clearUnpairedBtn = document.getElementById('clearUnpairedBtn');
 
 // Modal Elements
 const phoneDetailModalEl = document.getElementById('phoneDetailModal');
@@ -47,62 +49,79 @@ const modalDeviceLabelEl = document.getElementById('modalDeviceLabel');
 const modalQRImgEl = document.getElementById('modalQRImg');
 const closePhoneModalBtn = document.getElementById('closePhoneModalBtn');
 
-// Drawer Toggle
-toggleMasterConsoleBtn.addEventListener('click', () => {
-  commanderDrawerEl.classList.toggle('collapsed');
-});
-
-closeDrawerBtn.addEventListener('click', () => {
-  commanderDrawerEl.classList.add('collapsed');
-});
-
-// Ticker Log Stream
-function logTicker(msg, type = 'info') {
-  const time = new Date().toLocaleTimeString();
-  const item = document.createElement('span');
-  item.className = 'ticker-item';
-  item.style.color = type === 'error' ? 'var(--accent-red)' : type === 'success' ? 'var(--neon-green)' : 'var(--text-main)';
-  item.textContent = `[${time}] ${msg} | `;
-  tickerLogsEl.prepend(item);
+// 1. Theme Engine
+function initTheme() {
+  const savedTheme = localStorage.getItem('wtsp_wizard_theme') || 'midnight';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  if (themeSelectorEl) {
+    themeSelectorEl.value = savedTheme;
+  }
 }
 
-// Generate Model for Device
+themeSelectorEl.addEventListener('change', (e) => {
+  const newTheme = e.target.value;
+  document.documentElement.setAttribute('data-theme', newTheme);
+  localStorage.setItem('wtsp_wizard_theme', newTheme);
+  logFeed(`Applied visual theme: ${newTheme.toUpperCase()}`);
+});
+
+initTheme();
+
+// 2. Activity Feed Helper
+function logFeed(msg) {
+  const time = new Date().toLocaleTimeString();
+  feedStreamEl.textContent = `[${time}] ${msg}`;
+}
+
+// 3. Console Toggle & Keyboard Shortcut
+function toggleConsole() {
+  commandConsoleEl.classList.toggle('collapsed');
+}
+
+toggleConsoleBtn.addEventListener('click', toggleConsole);
+collapseConsoleBtn.addEventListener('click', toggleConsole);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'c' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    toggleConsole();
+  }
+});
+
+// 4. Device Model Helper
 function getDeviceModel(index) {
   return DEVICE_MODELS[index % DEVICE_MODELS.length];
 }
 
-// Extract numeric ID (e.g. "account_01" -> "01")
 function getNumericId(id, fallbackIndex) {
   const digits = id.replace(/\D/g, '');
-  if (digits) {
-    return digits.padStart(2, '0');
-  }
-  return String(fallbackIndex + 1).padStart(2, '0');
+  return digits ? digits.padStart(2, '0') : String(fallbackIndex + 1).padStart(2, '0');
 }
 
-// Render Phone Farm Matrix Wall
-function renderPhoneFarm() {
+// 5. Render High-Density Device Grid
+function renderDeviceGrid() {
   const sessions = Array.from(sessionsState.values());
   const connectedCount = sessions.filter(s => s.status === 'connected').length;
 
   totalUnitsCountEl.textContent = sessions.length;
   activeUnitsCountEl.textContent = connectedCount;
+  activeFilterCountEl.textContent = `${connectedCount} / ${sessions.length} online`;
 
   if (connectedCount > 0) {
-    fleetStatusTextEl.textContent = `SYNCED // ${connectedCount} UNITS ONLINE`;
-    fleetStatusTextEl.style.color = 'var(--neon-green)';
-    fleetStatusTextEl.style.borderColor = 'rgba(0, 255, 102, 0.4)';
+    fleetStatusTextEl.textContent = 'ONLINE // SYNCED';
+    fleetStatusTextEl.style.color = 'var(--status-online)';
+    fleetStatusTextEl.style.borderColor = 'rgba(16, 185, 129, 0.3)';
   } else {
-    fleetStatusTextEl.textContent = 'STANDBY // ALL UNITS DISCONNECTED';
-    fleetStatusTextEl.style.color = 'var(--accent-amber)';
-    fleetStatusTextEl.style.borderColor = 'rgba(255, 170, 0, 0.3)';
+    fleetStatusTextEl.textContent = 'STANDBY';
+    fleetStatusTextEl.style.color = 'var(--status-standby)';
+    fleetStatusTextEl.style.borderColor = 'rgba(245, 158, 11, 0.3)';
   }
 
   if (sessions.length === 0) {
     phoneFarmGridEl.innerHTML = `
-      <div style="grid-column: 1/-1; text-align: center; padding: 60px 20px; color: var(--text-muted);">
-        <p style="font-family: var(--font-hud); font-size: 16px; letter-spacing: 1px;">⚡ NO UNITS DEPLOYED IN MATRIX</p>
-        <p style="font-size: 13px; margin-top: 8px;">Click <strong>+ DEPLOY 1 UNIT</strong> or <strong>+ DEPLOY 5 UNITS</strong> to spawn smartphone devices.</p>
+      <div style="grid-column: 1/-1; text-align: center; padding: 48px 16px; color: var(--text-muted);">
+        <p style="font-weight: 500;">No devices initialized.</p>
+        <p style="font-size: 11px; margin-top: 4px;">Click <strong>+ Add Device</strong> or <strong>+ Batch (5)</strong> to spawn instances.</p>
       </div>
     `;
     return;
@@ -112,75 +131,47 @@ function renderPhoneFarm() {
   sessions.forEach((session, index) => {
     const numId = getNumericId(session.id, index);
     const model = getDeviceModel(index);
-    const temp = 20 + (index % 6); // Mock realistic temp 20°-25°C
-
-    const card = document.createElement('div');
-    card.className = `phone-unit-card`;
-    card.id = `phone-card-${session.id}`;
-
     const isConnected = session.status === 'connected';
     const isQrReady = session.status === 'qr_ready';
 
+    const statusTag = isConnected ? 'online' : isQrReady ? 'standby' : 'offline';
+    const statusLabel = isConnected ? 'Online' : isQrReady ? 'Ready' : 'Offline';
+
+    const userNumber = session.user?.id ? session.user.id.split('@')[0] : 'Unpaired';
+
+    const card = document.createElement('div');
+    card.className = 'device-card';
+    card.id = `device-card-${session.id}`;
+
     card.innerHTML = `
-      <!-- Phone Top Bar (Matches Reel) -->
-      <div class="phone-top-bar">
-        <div class="phone-id-badge">
-          <span class="phone-device-num">${numId}</span>
-          <span class="phone-model-code">${model}</span>
-        </div>
-        <div class="phone-telemetry">
-          <span class="usb-tag">USB</span>
-          <span class="temp-tag">${temp}°C</span>
-        </div>
+      <div class="device-card-header">
+        <span class="instance-label">Unit ${numId}</span>
+        <span class="instance-tag tag-${statusTag}">${statusLabel}</span>
       </div>
 
-      <!-- Smartphone Inner Screen -->
-      <div class="phone-inner-screen">
-        <!-- Giant Neon Green Number From Reel -->
-        <div class="screen-neon-number">${numId}</div>
-
-        <!-- Screen Status Pill -->
-        <div class="screen-status-pill">
-          <span class="screen-status-text">${session.status.replace('_', ' ')}</span>
-          <span class="status-dot-sm ${session.status}"></span>
+      <div class="device-screen-sim">
+        <div class="sim-number">${numId}</div>
+        <div class="sim-telemetry">
+          <span class="sim-model">${model}</span>
+          <span class="sim-user-id">${userNumber}</span>
         </div>
-
-        <!-- In-Screen QR Code Preview (If QR Ready) -->
-        <div class="screen-qr-preview ${isQrReady ? 'show' : ''}" id="screen-qr-${session.id}">
-          <img src="${session.qr || ''}" alt="QR">
-          <span class="screen-qr-tap">TAP TO ENLARGE</span>
-        </div>
-
-        <!-- Chat Mirror Layer (Live Action Bubble) -->
-        <div class="screen-chat-layer">
-          <div class="mirror-chat-bubble" id="bubble-${session.id}">
-            <span class="bubble-text" id="bubble-text-${session.id}">...</span>
-            <div class="bubble-meta">
-              <span class="bubble-time">now</span>
-              <span class="bubble-ticks">✓✓</span>
-            </div>
+        <div class="sim-bubble-layer">
+          <div class="sim-chat-bubble" id="sim-bubble-${session.id}">
+            <span id="sim-text-${session.id}">...</span>
+            <div class="bubble-time-ticks">&#10003;&#10003;</div>
           </div>
         </div>
-
-        <!-- Bottom App Dock -->
-        <div class="phone-bottom-dock">
-          <div class="dock-icon system">📞</div>
-          <div class="dock-icon whatsapp" title="WhatsApp Node">💬</div>
-          <div class="dock-icon system">🌐</div>
-          <div class="dock-icon system">📷</div>
-        </div>
       </div>
 
-      <!-- Phone Bottom Controls -->
-      <div class="phone-bottom-controls">
+      <div class="device-card-footer">
         ${isQrReady ? `
-          <button class="btn-phone-action active-qr qr-click-btn" data-id="${session.id}">📷 PAIR QR</button>
+          <button class="btn-card highlight qr-action-btn" data-id="${session.id}">Pair QR</button>
         ` : isConnected ? `
-          <button class="btn-phone-action" style="color: var(--neon-green);" disabled>ONLINE</button>
+          <button class="btn-card" style="color: var(--status-online);" disabled>Connected</button>
         ` : `
-          <button class="btn-phone-action connect-click-btn" data-id="${session.id}">CONNECT</button>
+          <button class="btn-card reconnect-action-btn" data-id="${session.id}">Connect</button>
         `}
-        <button class="btn-phone-action danger remove-click-btn" data-id="${session.id}" title="Remove unit">✕</button>
+        <button class="btn-card danger delete-action-btn" data-id="${session.id}" title="Remove Instance">&times;</button>
       </div>
     `;
 
@@ -188,41 +179,33 @@ function renderPhoneFarm() {
   });
 
   // Attach button events
-  document.querySelectorAll('.qr-click-btn').forEach(b => {
-    b.addEventListener('click', () => openModalQR(b.getAttribute('data-id')));
+  document.querySelectorAll('.qr-action-btn').forEach(btn => {
+    btn.addEventListener('click', () => openQRModal(btn.getAttribute('data-id')));
   });
 
-  document.querySelectorAll('.screen-qr-preview').forEach(el => {
-    el.addEventListener('click', () => {
-      const parentCard = el.closest('.phone-unit-card');
-      const id = parentCard.id.replace('phone-card-', '');
-      openModalQR(id);
-    });
-  });
-
-  document.querySelectorAll('.connect-click-btn').forEach(b => {
-    b.addEventListener('click', () => {
-      const id = b.getAttribute('data-id');
+  document.querySelectorAll('.reconnect-action-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
       socket.emit('create_session', { id, label: id });
-      logTicker(`Reconnecting unit ${id}...`, 'info');
+      logFeed(`Reconnecting instance ${id}...`);
     });
   });
 
-  document.querySelectorAll('.remove-click-btn').forEach(b => {
-    b.addEventListener('click', () => {
-      const id = b.getAttribute('data-id');
-      if (confirm(`Decommission unit ${id} from army?`)) {
+  document.querySelectorAll('.delete-action-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      if (confirm(`Remove instance ${id}?`)) {
         socket.emit('remove_session', { id });
-        logTicker(`Decommissioned unit ${id}`, 'warn');
+        logFeed(`Removed instance ${id}`);
       }
     });
   });
 }
 
-// Modal QR viewer
-function openModalQR(sessionId) {
+// 6. QR Modal
+function openQRModal(sessionId) {
   currentQRModalId = sessionId;
-  modalDeviceLabelEl.textContent = `DEVICE UNIT: ${sessionId.toUpperCase()}`;
+  modalDeviceLabelEl.textContent = `Pairing: ${sessionId}`;
   const session = sessionsState.get(sessionId);
 
   if (session && session.qr) {
@@ -236,21 +219,21 @@ closePhoneModalBtn.addEventListener('click', () => {
   currentQRModalId = null;
 });
 
-// Socket.io Handlers
+// 7. Socket.io Handlers
 socket.on('initial_state', ({ sessions }) => {
   sessionsState.clear();
   sessions.forEach(s => sessionsState.set(s.id, s));
-  renderPhoneFarm();
-  logTicker(`Loaded ${sessions.length} units into device farm matrix.`);
+  renderDeviceGrid();
+  logFeed(`Loaded ${sessions.length} device instances.`);
 });
 
 socket.on('session_update', (session) => {
   sessionsState.set(session.id, session);
-  renderPhoneFarm();
+  renderDeviceGrid();
 
   if (currentQRModalId === session.id) {
     if (session.status === 'connected') {
-      logTicker(`🎉 UNIT ${session.id} ARMED & CONNECTED!`, 'success');
+      logFeed(`Instance ${session.id} successfully paired.`);
       phoneDetailModalEl.classList.remove('show');
       currentQRModalId = null;
     } else if (session.qr) {
@@ -261,8 +244,8 @@ socket.on('session_update', (session) => {
 
 socket.on('session_removed', (sessionId) => {
   sessionsState.delete(sessionId);
-  renderPhoneFarm();
-  logTicker(`Unit ${sessionId} removed from matrix.`);
+  renderDeviceGrid();
+  logFeed(`Instance ${sessionId} decommissioned.`);
 });
 
 socket.on('session_qr', ({ id, qr }) => {
@@ -270,7 +253,7 @@ socket.on('session_qr', ({ id, qr }) => {
   if (s) {
     s.qr = qr;
     s.status = 'qr_ready';
-    renderPhoneFarm();
+    renderDeviceGrid();
   }
   if (currentQRModalId === id) {
     modalQRImgEl.src = qr;
@@ -279,77 +262,69 @@ socket.on('session_qr', ({ id, qr }) => {
 
 // Telemetry & Action Animations
 socket.on('action_started', (data) => {
-  logTicker(`🚀 ACTION DISPATCHED: [${data.type.toUpperCase()}] to ${data.total} units!`, 'info');
-  // Trigger synchronized flashing across entire device army!
-  document.querySelectorAll('.phone-unit-card').forEach(card => {
-    card.classList.add('action-firing');
-  });
+  logFeed(`Dispatching [${data.type.toUpperCase()}] across ${data.total} units.`);
 });
 
 socket.on('action_progress', (data) => {
-  const card = document.getElementById(`phone-card-${data.sessionId}`);
-  const bubble = document.getElementById(`bubble-${data.sessionId}`);
-  const bubbleText = document.getElementById(`bubble-text-${data.sessionId}`);
-
-  if (card) {
-    card.classList.remove('action-firing');
-  }
+  const bubble = document.getElementById(`sim-bubble-${data.sessionId}`);
+  const bubbleText = document.getElementById(`sim-text-${data.sessionId}`);
 
   if (bubble && bubbleText) {
-    bubbleText.textContent = data.status === 'success' ? 'Synchronized ✓' : 'Failed ✗';
-    bubble.classList.add('visible');
-    setTimeout(() => {
-      bubble.classList.remove('visible');
-    }, 4000);
+    bubbleText.textContent = data.status === 'success' ? 'Dispatched' : 'Failed';
+    bubble.classList.add('active');
+    setTimeout(() => bubble.classList.remove('active'), 3500);
   }
 
-  const icon = data.status === 'success' ? '✔' : '✖';
-  const colorType = data.status === 'success' ? 'success' : 'error';
-  logTicker(`${icon} [${data.current}/${data.total}] Unit ${data.sessionId}: ${data.status}`, colorType);
+  logFeed(`[${data.current}/${data.total}] Instance ${data.sessionId}: ${data.status}`);
 });
 
 socket.on('action_completed', (data) => {
-  logTicker(`🏁 ALL UNITS COMPLETED! Execution synced across army.`, 'success');
-  document.querySelectorAll('.phone-unit-card').forEach(card => {
-    card.classList.remove('action-firing');
-  });
+  logFeed(`Broadcast complete. ${data.results.length} instances processed.`);
   fireBroadcastBtn.disabled = false;
   fireGroupJoinBtn.disabled = false;
   fireReactBtn.disabled = false;
 });
 
 socket.on('operation_error', (data) => {
-  logTicker(`[ERROR] ${data.message}`, 'error');
+  logFeed(`[Error] ${data.message}`);
   alert(data.message);
   fireBroadcastBtn.disabled = false;
   fireGroupJoinBtn.disabled = false;
   fireReactBtn.disabled = false;
 });
 
-// Deploy Unit Buttons
+// 8. Add Buttons
 addSingleUnitBtn.addEventListener('click', () => {
-  const count = sessionsState.size;
-  const num = count + 1;
+  const num = sessionsState.size + 1;
   const id = `account_${String(num).padStart(2, '0')}`;
-  socket.emit('create_session', { id, label: `Unit ${num}` });
-  logTicker(`Deploying Unit ${id}... Generating QR.`);
+  socket.emit('create_session', { id, label: `Device ${num}` });
+  logFeed(`Spawning device instance ${id}...`);
 });
 
 addBatchUnitsBtn.addEventListener('click', () => {
-  const count = sessionsState.size;
-  logTicker(`Batch deploying 5 phone units...`, 'info');
+  const currentCount = sessionsState.size;
+  logFeed(`Batch deploying 5 device instances...`);
   for (let i = 1; i <= 5; i++) {
-    const num = count + i;
+    const num = currentCount + i;
     const id = `account_${String(num).padStart(2, '0')}`;
-    socket.emit('create_session', { id, label: `Unit ${num}` });
+    socket.emit('create_session', { id, label: `Device ${num}` });
   }
 });
 
-// Console Tab Switcher
-document.querySelectorAll('.c-tab').forEach(tab => {
+if (clearUnpairedBtn) {
+  clearUnpairedBtn.addEventListener('click', () => {
+    if (confirm('Clean all unpaired/offline instances from the dashboard?')) {
+      socket.emit('clear_unpaired');
+      logFeed('Cleaning unpaired instances...');
+    }
+  });
+}
+
+// 9. Console Tabs
+document.querySelectorAll('.nav-tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.c-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.console-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.console-tab-pane').forEach(p => p.classList.remove('active'));
 
     tab.classList.add('active');
     const targetId = tab.getAttribute('data-tab');
@@ -357,16 +332,16 @@ document.querySelectorAll('.c-tab').forEach(tab => {
   });
 });
 
-// Emoji Picker
-document.querySelectorAll('.emoji-opt').forEach(opt => {
-  opt.addEventListener('click', () => {
-    document.querySelectorAll('.emoji-opt').forEach(o => o.classList.remove('active'));
-    opt.classList.add('active');
-    selectedEmoji = opt.getAttribute('data-emoji');
+// Reaction Select
+document.querySelectorAll('.react-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.react-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedEmoji = btn.getAttribute('data-emoji');
   });
 });
 
-// Fire Broadcast Action
+// Action Dispatches
 fireBroadcastBtn.addEventListener('click', () => {
   const target = targetRecipientInput.value.trim();
   const message = broadcastMessageInput.value.trim();
@@ -375,16 +350,16 @@ fireBroadcastBtn.addEventListener('click', () => {
   const simulateTyping = humanTypingCheck.checked;
 
   if (!target) {
-    alert('Please enter target recipient phone number or group JID');
+    alert('Please enter a target recipient phone number or group JID');
     return;
   }
   if (!message) {
-    alert('Please enter message payload');
+    alert('Please enter a message template');
     return;
   }
 
   fireBroadcastBtn.disabled = true;
-  logTicker(`⚡ FIRING BROADCAST MIRROR TO ALL UNITS...`, 'info');
+  logFeed(`Firing synchronized broadcast...`);
 
   socket.emit('mirror_send', {
     target,
@@ -395,21 +370,18 @@ fireBroadcastBtn.addEventListener('click', () => {
   });
 });
 
-// Fire Group Join Action
 fireGroupJoinBtn.addEventListener('click', () => {
   const inviteLink = groupInviteLinkInput.value.trim();
   if (!inviteLink) {
-    alert('Please enter WhatsApp group invite link');
+    alert('Please enter group invite link');
     return;
   }
 
   fireGroupJoinBtn.disabled = true;
-  logTicker(`👥 INITIATING MASS GROUP JOIN ACROSS ARMY...`, 'info');
-
+  logFeed(`Executing group join across active instances...`);
   socket.emit('mirror_join', { inviteLink });
 });
 
-// Fire Reaction Bomb
 fireReactBtn.addEventListener('click', () => {
   const target = reactChatJidInput.value.trim();
   const messageId = reactMessageIdInput.value.trim();
@@ -420,8 +392,7 @@ fireReactBtn.addEventListener('click', () => {
   }
 
   fireReactBtn.disabled = true;
-  logTicker(`🔥 TRIGGERING MASS REACTION [${selectedEmoji}]...`, 'info');
-
+  logFeed(`Executing reaction [${selectedEmoji}] across active instances...`);
   socket.emit('mirror_react', {
     target,
     messageId,

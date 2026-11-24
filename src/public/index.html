@@ -1,206 +1,208 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="midnight">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Wtsp Wizard — Device Army Matrix</title>
+  <title>Wtsp Wizard — Studio Controller</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
-  <!-- Top Command HUD -->
-  <header class="matrix-hud">
-    <div class="hud-left">
-      <div class="matrix-logo">
-        <span class="matrix-icon">⚡</span>
-        <div>
-          <h1 class="hud-title">WTSP WIZARD // DEVICE ARMY</h1>
-          <p class="hud-subtitle">EMPIRES NEED AN ARMY • 20+ MULTI-SESSION ORCHESTRATOR</p>
-        </div>
+  <!-- Studio Navigation -->
+  <header class="studio-header">
+    <div class="nav-brand">
+      <div class="brand-badge">PRO</div>
+      <div class="brand-title-wrap">
+        <h1 class="brand-title">Wtsp Wizard</h1>
+        <span class="brand-divider">/</span>
+        <span class="brand-env">Fleet Studio</span>
       </div>
     </div>
 
-    <!-- Live Telemetry Stats -->
-    <div class="hud-stats">
-      <div class="stat-box">
-        <span class="stat-label">UNITS DEPLOYED</span>
-        <span id="totalUnitsCount" class="stat-val">0</span>
+    <!-- Live Telemetry Counts -->
+    <div class="nav-metrics">
+      <div class="metric-item">
+        <span class="metric-label">DEVICES</span>
+        <span id="totalUnitsCount" class="metric-val">0</span>
       </div>
-      <div class="stat-box active-stat">
-        <span class="stat-label">ARMED & SYNCED</span>
-        <div class="stat-row">
-          <span class="pulse-indicator"></span>
-          <span id="activeUnitsCount" class="stat-val highlight">0</span>
-        </div>
+      <div class="metric-divider"></div>
+      <div class="metric-item">
+        <span class="metric-label">ONLINE</span>
+        <span id="activeUnitsCount" class="metric-val text-accent">0</span>
       </div>
-      <div class="stat-box">
-        <span class="stat-label">MATRIX LATENCY</span>
-        <span class="stat-val green">12ms</span>
+      <div class="metric-divider"></div>
+      <div class="metric-item">
+        <span class="metric-label">NETWORK</span>
+        <span class="metric-val status-online">Connected</span>
       </div>
     </div>
 
-    <!-- HUD Actions -->
-    <div class="hud-actions">
-      <button id="toggleMasterConsoleBtn" class="btn btn-commander">
-        🎮 MASTER CONSOLE
+    <!-- Controls & Theme Selector -->
+    <div class="nav-actions">
+      <!-- Theme Switcher -->
+      <div class="theme-select-wrap">
+        <label for="themeSelector" class="sr-only">Theme</label>
+        <select id="themeSelector" class="theme-select" title="Color Scheme">
+          <option value="midnight">Midnight Slate</option>
+          <option value="obsidian">Obsidian Pitch</option>
+          <option value="zinc">Titanium Zinc</option>
+          <option value="emerald">Emerald Studio</option>
+        </select>
+      </div>
+
+      <button id="toggleConsoleBtn" class="btn btn-secondary">
+        <span>Console</span>
+        <kbd class="kbd-shortcut">C</kbd>
       </button>
-      <button id="addSingleUnitBtn" class="btn btn-hud">+ DEPLOY 1 UNIT</button>
-      <button id="addBatchUnitsBtn" class="btn btn-hud-glow">+ DEPLOY 5 UNITS</button>
+      <button id="clearUnpairedBtn" class="btn btn-secondary" title="Remove all unconnected sessions">Clean Offline</button>
+      <button id="addSingleUnitBtn" class="btn btn-secondary">+ Add Device</button>
+      <button id="addBatchUnitsBtn" class="btn btn-primary">+ Batch (5)</button>
     </div>
   </header>
 
-  <!-- Master Commander Drawer / Floating Console -->
-  <aside id="commanderDrawer" class="commander-drawer open">
-    <div class="drawer-header">
-      <div class="drawer-title">
-        <span class="drawer-dot"></span>
-        <h2>CENTRAL ACTION MIRROR // TRANSMITTER</h2>
+  <!-- Central Command Console (Collapsible) -->
+  <section id="commandConsole" class="command-console">
+    <div class="console-top">
+      <div class="console-nav">
+        <button class="nav-tab active" data-tab="tab-broadcast">Broadcast Dispatch</button>
+        <button class="nav-tab" data-tab="tab-group-join">Group Join</button>
+        <button class="nav-tab" data-tab="tab-reaction">Message Reaction</button>
       </div>
-      <button id="closeDrawerBtn" class="drawer-toggle-btn">▼ MINIMIZE CONSOLE</button>
+      <div class="console-tools">
+        <button id="collapseConsoleBtn" class="btn-icon" title="Minimize Console">&minus;</button>
+      </div>
     </div>
 
-    <div class="drawer-body">
-      <!-- Tabs -->
-      <div class="console-tabs">
-        <button class="c-tab active" data-tab="tab-broadcast">📢 BROADCAST MIRROR</button>
-        <button class="c-tab" data-tab="tab-group-join">👥 MASS GROUP JOIN</button>
-        <button class="c-tab" data-tab="tab-mass-react">🔥 REACTION BOMB</button>
-      </div>
-
+    <div class="console-body">
       <!-- Tab 1: Broadcast -->
-      <div id="tab-broadcast" class="console-pane active">
-        <div class="console-row">
-          <div class="input-wrap flex-1">
-            <label>TARGET PHONE / GROUP JID</label>
-            <input type="text" id="targetRecipient" placeholder="e.g. 919876543210 (Country code included)" class="c-input">
+      <div id="tab-broadcast" class="console-tab-pane active">
+        <div class="form-grid">
+          <div class="form-field flex-1">
+            <label for="targetRecipient">Target JID / Phone Number</label>
+            <input type="text" id="targetRecipient" placeholder="e.g. 919876543210 (Country code included)" class="input-base">
           </div>
-          <div class="input-wrap flex-2">
-            <div class="label-with-badge">
-              <label>MESSAGE PAYLOAD (SPINTAX ARMED)</label>
-              <span class="spintax-badge">{Hi|Hey|Hello} Variation Engine</span>
+          <div class="form-field flex-2">
+            <div class="field-label-row">
+              <label for="broadcastMessage">Message Template</label>
+              <span class="tag-spintax">{Hello|Hi|Hey} Spintax Enabled</span>
             </div>
-            <input type="text" id="broadcastMessage" placeholder="{Hello|Hi|Hey} bro, this is a synchronized action from our device army!" class="c-input">
+            <input type="text" id="broadcastMessage" placeholder="{Hello|Hi|Hey} team, this is a synchronized broadcast." class="input-base">
           </div>
-          <div class="input-wrap delay-wrap">
-            <label>JITTER DELAY (SEC)</label>
-            <div class="jitter-inputs">
-              <input type="number" id="minJitter" value="1.0" step="0.5" min="0.5" class="c-input-sm" title="Min Delay">
-              <span>-</span>
-              <input type="number" id="maxJitter" value="2.5" step="0.5" min="1.0" class="c-input-sm" title="Max Delay">
+          <div class="form-field width-auto">
+            <label>Delay Range (s)</label>
+            <div class="range-inputs">
+              <input type="number" id="minJitter" value="1.0" step="0.5" min="0.5" class="input-base input-mini">
+              <span class="range-sep">&ndash;</span>
+              <input type="number" id="maxJitter" value="2.5" step="0.5" min="1.0" class="input-base input-mini">
             </div>
           </div>
-          <div class="input-wrap">
-            <label>HUMAN TYPING</label>
-            <label class="matrix-toggle">
+          <div class="form-field width-auto flex-center">
+            <label class="checkbox-label">
               <input type="checkbox" id="humanTypingCheck" checked>
-              <span class="toggle-track"></span>
+              <span>Typing Emulation</span>
             </label>
           </div>
-          <div class="input-wrap submit-wrap">
-            <button id="fireBroadcastBtn" class="btn-fire">
-              ⚡ FIRE TO ALL UNITS
+          <div class="form-field width-auto submit-cell">
+            <button id="fireBroadcastBtn" class="btn btn-action">
+              Dispatch to Fleet
             </button>
           </div>
         </div>
       </div>
 
       <!-- Tab 2: Group Join -->
-      <div id="tab-group-join" class="console-pane">
-        <div class="console-row">
-          <div class="input-wrap flex-3">
-            <label>WHATSAPP GROUP INVITE LINK</label>
-            <input type="text" id="groupInviteLink" placeholder="https://chat.whatsapp.com/XXXXX..." class="c-input">
+      <div id="tab-group-join" class="console-tab-pane">
+        <div class="form-grid">
+          <div class="form-field flex-3">
+            <label for="groupInviteLink">WhatsApp Group Invite Link</label>
+            <input type="text" id="groupInviteLink" placeholder="https://chat.whatsapp.com/..." class="input-base">
           </div>
-          <div class="input-wrap submit-wrap">
-            <button id="fireGroupJoinBtn" class="btn-fire">
-              👥 ALL UNITS JOIN GROUP
+          <div class="form-field width-auto submit-cell">
+            <button id="fireGroupJoinBtn" class="btn btn-action">
+              Join Group (All Devices)
             </button>
           </div>
         </div>
       </div>
 
-      <!-- Tab 3: Mass React -->
-      <div id="tab-mass-react" class="console-pane">
-        <div class="console-row">
-          <div class="input-wrap flex-1">
-            <label>CHAT JID</label>
-            <input type="text" id="reactChatJid" placeholder="919876543210@s.whatsapp.net" class="c-input">
+      <!-- Tab 3: Reaction -->
+      <div id="tab-reaction" class="console-tab-pane">
+        <div class="form-grid">
+          <div class="form-field flex-1">
+            <label for="reactChatJid">Chat Recipient / Group JID</label>
+            <input type="text" id="reactChatJid" placeholder="Phone or Group JID" class="input-base">
           </div>
-          <div class="input-wrap flex-1">
-            <label>TARGET MESSAGE ID</label>
-            <input type="text" id="reactMessageId" placeholder="Message ID e.g. 3EB0..." class="c-input">
+          <div class="form-field flex-1">
+            <label for="reactMessageId">Message ID</label>
+            <input type="text" id="reactMessageId" placeholder="Message ID string" class="input-base">
           </div>
-          <div class="input-wrap flex-1">
-            <label>REACTION EMOJI</label>
-            <div class="emoji-selector">
-              <button class="emoji-opt active" data-emoji="❤️">❤️</button>
-              <button class="emoji-opt" data-emoji="👍">👍</button>
-              <button class="emoji-opt" data-emoji="🔥">🔥</button>
-              <button class="emoji-opt" data-emoji="🚀">🚀</button>
-              <button class="emoji-opt" data-emoji="😂">😂</button>
+          <div class="form-field width-auto">
+            <label>Reaction</label>
+            <div class="reaction-selector">
+              <button class="react-btn active" data-emoji="❤️">❤️</button>
+              <button class="react-btn" data-emoji="👍">👍</button>
+              <button class="react-btn" data-emoji="🔥">🔥</button>
+              <button class="react-btn" data-emoji="👏">👏</button>
             </div>
           </div>
-          <div class="input-wrap submit-wrap">
-            <button id="fireReactBtn" class="btn-fire">
-              ✨ TRIGGER REACTION BOMB
+          <div class="form-field width-auto submit-cell">
+            <button id="fireReactBtn" class="btn btn-action">
+              Execute Reaction
             </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Live Telemetry Marquee / Ticker -->
-    <div class="matrix-ticker">
-      <span class="ticker-title">TERMINAL AUDIT:</span>
-      <div id="tickerLogs" class="ticker-stream">
-        <span class="ticker-item">[SYSTEM] Device farm matrix initialized. Ready for deployment.</span>
+    <!-- Clean Log Feed Line -->
+    <div class="console-feed">
+      <span class="feed-badge">ACTIVITY</span>
+      <div id="feedStream" class="feed-text">
+        System initialized. Ready for device fleet commands.
       </div>
     </div>
-  </aside>
+  </section>
 
-  <!-- The Device Farm Matrix Wall (Phone Grid) -->
-  <main class="matrix-stage">
-    <div class="farm-wall-header">
-      <div class="wall-title-area">
-        <span class="wall-badge">DEVICE MATRIX FLEET</span>
-        <h2>REAL-TIME PHONE FARM WALL</h2>
+  <!-- Workspace Section / Device Grid -->
+  <main class="studio-main">
+    <div class="main-bar">
+      <div class="bar-title">
+        <h2>Device Farm Instances</h2>
+        <span class="bar-count" id="activeFilterCount">Active Instances</span>
       </div>
-      <div class="wall-controls">
-        <span id="fleetStatusText" class="fleet-tag">STANDBY // READY</span>
+      <div class="bar-tools">
+        <span id="fleetStatusText" class="status-indicator">STANDBY</span>
       </div>
     </div>
 
-    <!-- The Phone Farm Grid (Renders realistic smartphone frames) -->
-    <div id="phoneFarmGrid" class="phone-farm-grid">
-      <!-- Phone cards injected dynamically -->
+    <!-- High-Density Studio Grid -->
+    <div id="phoneFarmGrid" class="device-grid">
+      <!-- Device Cards dynamically rendered here -->
     </div>
   </main>
 
-  <!-- Phone Screen QR / Expanded Modal -->
-  <div id="phoneDetailModal" class="phone-modal-backdrop">
-    <div class="phone-modal-frame">
-      <div class="modal-phone-bezel">
-        <div class="modal-phone-speaker"></div>
-        <div class="modal-phone-camera"></div>
-        <div class="modal-phone-header">
-          <span id="modalDeviceLabel">DEVICE #01</span>
-          <button id="closePhoneModalBtn" class="modal-close-icon">&times;</button>
+  <!-- High-Precision QR Pairing Modal -->
+  <div id="phoneDetailModal" class="studio-modal-backdrop">
+    <div class="studio-modal-card">
+      <div class="modal-top">
+        <div class="modal-title-group">
+          <h3 id="modalDeviceLabel">Device Pairing</h3>
+          <p class="modal-desc">Scan with WhatsApp to register instance session</p>
         </div>
-        <div class="modal-phone-screen">
-          <div id="modalQRContainer" class="modal-qr-box">
-            <img id="modalQRImg" src="" alt="Scan QR">
-            <div class="qr-laser-line"></div>
-          </div>
-          <div class="modal-qr-steps">
-            <h4>LINK DEVICE</h4>
-            <p>1. Open WhatsApp on your phone</p>
-            <p>2. Tap <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong></p>
-            <p>3. Scan this QR code</p>
-          </div>
+        <button id="closePhoneModalBtn" class="btn-icon">&times;</button>
+      </div>
+      <div class="modal-content">
+        <div class="qr-canvas-wrap">
+          <img id="modalQRImg" src="" alt="Pairing QR Code">
         </div>
+        <ol class="pairing-instructions">
+          <li>Open WhatsApp on the device</li>
+          <li>Navigate to <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong></li>
+          <li>Point camera at the code</li>
+        </ol>
       </div>
     </div>
   </div>

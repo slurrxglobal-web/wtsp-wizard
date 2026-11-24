@@ -117,18 +117,21 @@ export class SessionManager extends EventEmitter {
           if (statusCode === DisconnectReason.loggedOut) {
             sessionData.status = 'logged_out';
             sessionData.user = null;
-            // Clean auth credentials
             try {
               fs.rmSync(sessionAuthPath, { recursive: true, force: true });
             } catch (rmErr) {
               console.error(`[${sessionId}] Failed to delete session dir:`, rmErr.message);
             }
+          } else if (statusCode === 408) {
+            // QR scan timeout - do not spam reconnect
+            sessionData.status = 'disconnected';
+            sessionData.qr = null;
           } else {
             sessionData.status = 'disconnected';
-            // Auto reconnect after short delay
-            if (sessionData.retryCount < 5) {
+            // Auto reconnect only if already authenticated session had network drops
+            if (sessionData.user && sessionData.retryCount < 3) {
               sessionData.retryCount++;
-              setTimeout(() => this.initSession(sessionId, label), 3000);
+              setTimeout(() => this.initSession(sessionId, label), 4000);
             }
           }
 
@@ -153,6 +156,22 @@ export class SessionManager extends EventEmitter {
       this.emit('session_update', this.getSanitizedSession(sessionId));
       throw err;
     }
+  }
+
+  /**
+   * Cleans all unpaired sessions from memory and disk.
+   */
+  async clearUnpairedSessions() {
+    const toRemove = [];
+    for (const [id, session] of this.sessions) {
+      if (session.status !== 'connected') {
+        toRemove.push(id);
+      }
+    }
+    for (const id of toRemove) {
+      await this.removeSession(id);
+    }
+    return toRemove.length;
   }
 
   /**

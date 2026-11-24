@@ -48,6 +48,18 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher) {
       }
     });
 
+    // Clear all unpaired sessions
+    socket.on('clear_unpaired', async () => {
+      try {
+        const count = await sessionManager.clearUnpairedSessions();
+        socket.emit('initial_state', {
+          sessions: sessionManager.getAllSessions()
+        });
+      } catch (err) {
+        socket.emit('operation_error', { message: err.message });
+      }
+    });
+
     // Master mirror send action
     socket.on('mirror_send', async (payload) => {
       try {
