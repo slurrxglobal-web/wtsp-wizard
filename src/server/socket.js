@@ -1,4 +1,4 @@
-export function setupSocketHandlers(io, sessionManager, actionDispatcher) {
+export function setupSocketHandlers(io, sessionManager, actionDispatcher, adbBridge) {
   // Relay session events to all connected dashboard clients
   sessionManager.on('session_update', (session) => {
     io.emit('session_update', session);
@@ -32,12 +32,46 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher) {
     io.emit('messages_updated', { id, messages });
   });
 
+  // Relay ADB events
+  if (adbBridge) {
+    adbBridge.on('devices_updated', (devices) => {
+      io.emit('adb_devices_update', devices);
+    });
+  }
+
   io.on('connection', (socket) => {
-    // Send full current session list and real chats on connect
+    // Send full current session list, real chats, and ADB devices on connect
     socket.emit('initial_state', {
       sessions: sessionManager.getAllSessions(),
       chats: sessionManager.getAllChats(),
-      messages: sessionManager.getAllMessages()
+      messages: sessionManager.getAllMessages(),
+      adbDevices: adbBridge ? adbBridge.getAllDevices() : []
+    });
+
+    // ADB Actions
+    socket.on('adb_tap', async ({ xPct, yPct, targetSerials }) => {
+      if (adbBridge) {
+        await adbBridge.mirrorTap(xPct, yPct, targetSerials);
+      }
+    });
+
+    socket.on('adb_text', async ({ text, targetSerials }) => {
+      if (adbBridge) {
+        await adbBridge.mirrorText(text, targetSerials);
+      }
+    });
+
+    socket.on('adb_key', async ({ keyCode, targetSerials }) => {
+      if (adbBridge) {
+        await adbBridge.mirrorKey(keyCode, targetSerials);
+      }
+    });
+
+    socket.on('adb_refresh', async () => {
+      if (adbBridge) {
+        const devices = await adbBridge.scanDevices();
+        socket.emit('adb_devices_update', devices);
+      }
     });
 
     // Create / Start session

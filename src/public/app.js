@@ -1,10 +1,12 @@
-// Studio Socket.io Client & Master-Slave Mirror Engine
+// Studio Socket.io Client & Hybrid Dual-Engine Mirror Controller
 const socket = io();
 
 // State
 let sessionsState = new Map();
+let adbDevicesState = []; // Array of { serial, model, resolution, status, type: 'android' }
 let currentQRModalId = null;
 let masterSessionId = null;
+let currentFleetFilter = 'all'; // 'all', 'android', 'web'
 let selectedEmoji = '❤️';
 
 // Real WhatsApp Chat and Message Stores synced from Baileys
@@ -44,6 +46,15 @@ const fleetStatusTextEl = document.getElementById('fleetStatusText');
 const phoneFarmGridEl = document.getElementById('phoneFarmGrid');
 const feedStreamEl = document.getElementById('feedStream');
 const themeSelectorEl = document.getElementById('themeSelector');
+
+// Filters & ADB Buttons
+const countAllEl = document.getElementById('countAll');
+const countAndroidEl = document.getElementById('countAndroid');
+const countWebEl = document.getElementById('countWeb');
+const scanAdbBtn = document.getElementById('scanAdbBtn');
+const adbBackBtn = document.getElementById('adbBackBtn');
+const adbHomeBtn = document.getElementById('adbHomeBtn');
+const adbEnterBtn = document.getElementById('adbEnterBtn');
 
 // Console Drawer Elements
 const commandConsoleEl = document.getElementById('commandConsole');
@@ -113,26 +124,36 @@ function getNumericId(id, fallbackIndex) {
   return digits ? digits.padStart(2, '0') : String(fallbackIndex + 1).padStart(2, '0');
 }
 
-// 5. Render Phone Farm Device Grid
+// 5. Render Hybrid Fleet Grid (Android BlueStacks + Web WhatsApp)
 function renderDeviceGrid() {
-  const sessions = Array.from(sessionsState.values());
-  const connectedCount = sessions.filter(s => s.status === 'connected').length;
+  const webSessions = Array.from(sessionsState.values());
+  const androidDevices = adbDevicesState;
 
-  totalUnitsCountEl.textContent = sessions.length;
-  activeUnitsCountEl.textContent = connectedCount;
-  activeFilterCountEl.textContent = `${connectedCount} / ${sessions.length} online`;
+  const totalCount = webSessions.length + androidDevices.length;
+  const connectedWeb = webSessions.filter(s => s.status === 'connected').length;
+  const connectedAndroid = androidDevices.length;
+  const totalOnline = connectedWeb + connectedAndroid;
 
-  if (masterSessionId && !sessionsState.has(masterSessionId)) {
-    masterSessionId = null;
+  totalUnitsCountEl.textContent = totalCount;
+  activeUnitsCountEl.textContent = totalOnline;
+
+  if (countAllEl) countAllEl.textContent = totalCount;
+  if (countAndroidEl) countAndroidEl.textContent = androidDevices.length;
+  if (countWebEl) countWebEl.textContent = webSessions.length;
+
+  activeFilterCountEl.textContent = `${totalOnline} / ${totalCount} online (${currentFleetFilter.toUpperCase()})`;
+
+  // Auto-elect Master
+  if (!masterSessionId && totalOnline > 0) {
+    if (androidDevices.length > 0) {
+      masterSessionId = androidDevices[0].serial;
+    } else {
+      const firstConnectedWeb = webSessions.find(s => s.status === 'connected');
+      if (firstConnectedWeb) masterSessionId = firstConnectedWeb.id;
+    }
   }
 
-  // Auto-elect first connected device as Master if none selected
-  if (!masterSessionId && connectedCount > 0) {
-    const firstConnected = sessions.find(s => s.status === 'connected');
-    if (firstConnected) masterSessionId = firstConnected.id;
-  }
-
-  if (connectedCount > 0) {
+  if (totalOnline > 0) {
     fleetStatusTextEl.innerHTML = `
       <div class="sync-status-badge">
         <span class="sync-dot"></span>
@@ -143,165 +164,221 @@ function renderDeviceGrid() {
     fleetStatusTextEl.innerHTML = `<span class="status-indicator">STANDBY</span>`;
   }
 
-  if (sessions.length === 0) {
+  // Filter units
+  let displayUnits = [];
+  if (currentFleetFilter === 'all') {
+    displayUnits = [
+      ...androidDevices.map(d => ({ ...d, isAndroid: true })),
+      ...webSessions.map(s => ({ ...s, isAndroid: false }))
+    ];
+  } else if (currentFleetFilter === 'android') {
+    displayUnits = androidDevices.map(d => ({ ...d, isAndroid: true }));
+  } else {
+    displayUnits = webSessions.map(s => ({ ...s, isAndroid: false }));
+  }
+
+  if (displayUnits.length === 0) {
     phoneFarmGridEl.innerHTML = `
       <div style="grid-column: 1/-1; text-align: center; padding: 48px 16px; color: var(--text-muted);">
-        <p style="font-weight: 500;">No devices initialized.</p>
-        <p style="font-size: 11px; margin-top: 4px;">Click <strong>+ Add Device</strong> or <strong>+ Batch (5)</strong> to spawn instances.</p>
+        <p style="font-weight: 500;">No devices found in current filter [${currentFleetFilter.toUpperCase()}].</p>
+        <p style="font-size: 11px; margin-top: 4px;">Start BlueStacks or click <strong>+ Add Device</strong> to spawn instances.</p>
       </div>
     `;
     return;
   }
 
   phoneFarmGridEl.innerHTML = '';
-  sessions.forEach((session, index) => {
-    const numId = getNumericId(session.id, index);
-    const isConnected = session.status === 'connected';
-    const isQrReady = session.status === 'qr_ready';
-    const isMaster = session.id === masterSessionId;
+  displayUnits.forEach((unit, index) => {
+    const isMaster = unit.isAndroid ? (unit.serial === masterSessionId) : (unit.id === masterSessionId);
 
-    if (!instanceChatState.has(session.id)) {
-      instanceChatState.set(session.id, {
-        activeContact: null,
-        messages: [
-          { text: 'Instance ready for commands.', type: 'incoming', time: '10:30' }
-        ]
-      });
-    }
+    if (unit.isAndroid) {
+      // Render Android BlueStacks / Cloud Phone Frame
+      const card = document.createElement('div');
+      card.className = `device-card ${isMaster ? 'is-master' : ''}`;
+      card.id = `device-card-${unit.serial}`;
 
-    const state = instanceChatState.get(session.id);
-    const card = document.createElement('div');
-    card.className = `device-card ${isMaster ? 'is-master' : ''}`;
-    card.id = `device-card-${session.id}`;
-
-    const statusTag = isConnected ? 'online' : isQrReady ? 'standby' : 'offline';
-    const statusLabel = isConnected ? 'Online' : isQrReady ? 'Ready' : 'Offline';
-
-    card.innerHTML = `
-      <!-- Phone Top Bar -->
-      <div class="device-card-header">
-        <div class="instance-label">
-          <span>Unit ${numId}</span>
-          <span class="master-indicator">MASTER</span>
-        </div>
-        <span class="instance-tag tag-${statusTag}">${statusLabel}</span>
-      </div>
-
-      <!-- Phone Screen Viewport -->
-      <div class="phone-screen-viewport" id="viewport-${session.id}">
-        <!-- Virtual Ghost Cursor for slave screens -->
-        <div class="ghost-cursor" id="cursor-${session.id}"></div>
-
-        <!-- System Clock & Status Bar -->
-        <div class="phone-system-bar">
-          <span>10:42</span>
-          <span>4G • 98%</span>
+      card.innerHTML = `
+        <div class="device-card-header">
+          <div class="instance-label">
+            <span>${unit.model}</span>
+            <span class="master-indicator">MASTER</span>
+          </div>
+          <span class="instance-tag tag-android">ANDROID ADB</span>
         </div>
 
-        ${isConnected ? `
-          <!-- WhatsApp App Header -->
-          <div class="wa-app-header">
-            <span class="wa-app-title">WhatsApp</span>
-            <div class="wa-header-actions">
-              <span>🔍</span>
-              <span>⋮</span>
-            </div>
-          </div>
-
-          <!-- View A: Chats List View -->
-          <div class="wa-chats-view ${state.activeContact ? 'hidden' : ''}" id="chats-view-${session.id}" style="${state.activeContact ? 'display: none;' : ''}">
-            ${(() => {
-              const chats = getSessionChats(session.id);
-              if (chats.length === 0) {
-                return `
-                  <div style="padding: 30px 12px; text-align: center; color: var(--text-muted); font-size: 10px;">
-                    <p style="font-weight: 500; color: var(--text-secondary);">Syncing Real WhatsApp Chats...</p>
-                    <p style="margin-top: 4px; font-size: 8px;">Recent chats appear automatically.</p>
-                  </div>
-                `;
-              }
-              return chats.map((c, cIdx) => `
-                <div class="wa-chat-item ${state.activeContact?.id === c.id ? 'active' : ''}" data-session="${session.id}" data-contact-idx="${cIdx}">
-                  <div class="chat-avatar">${c.avatar}</div>
-                  <div class="chat-info">
-                    <div class="chat-name-row">
-                      <span class="chat-name">${c.name}</span>
-                      <span class="chat-time">${c.time}</span>
-                    </div>
-                    <div class="chat-last-msg">${c.lastMsg || 'Tap to open chat'}</div>
-                  </div>
-                </div>
-              `).join('');
-            })()}
-          </div>
-
-          <!-- View B: Conversation Screen -->
-          <div class="wa-conversation-view ${state.activeContact ? 'active' : ''}" id="conv-view-${session.id}">
-            <div class="conv-header">
-              <button class="conv-back-btn" data-session="${session.id}">&lsaquo;</button>
-              <div class="chat-avatar" style="width: 20px; height: 20px; font-size: 9px;" id="conv-avatar-${session.id}">
-                ${state.activeContact ? state.activeContact.avatar : 'WA'}
-              </div>
-              <span class="conv-contact-name" id="conv-title-${session.id}">
-                ${state.activeContact ? state.activeContact.name : 'Select Chat'}
-              </span>
+        <div class="phone-screen-viewport" id="viewport-${unit.serial}">
+          <div class="ghost-cursor" id="cursor-${unit.serial}"></div>
+          
+          <div class="android-canvas-sim" id="canvas-sim-${unit.serial}" data-serial="${unit.serial}">
+            <div class="android-screen-badge">
+              <span>${unit.serial}</span>
+              <span>${unit.resolution.width}x${unit.resolution.height}</span>
             </div>
 
-            <div class="conv-messages-scroll" id="conv-msgs-${session.id}">
-              ${state.messages.map(m => `
-                <div class="msg-bubble ${m.type}">
-                  ${m.text}
-                  <div class="msg-meta">${m.time} &#10003;&#10003;</div>
-                </div>
-              `).join('')}
+            <div class="android-center-content">
+              <div class="android-app-icon">🤖</div>
+              <div class="android-app-title">BlueStacks Android</div>
+              <div class="android-app-sub">Click anywhere to Tap Mirror</div>
             </div>
 
-            <div class="conv-input-bar">
-              <input type="text" class="conv-input" id="input-${session.id}" placeholder="Type a message..." data-session="${session.id}">
-              <button class="conv-send-btn" id="send-${session.id}" data-session="${session.id}">&#10148;</button>
+            <div class="android-nav-bar">
+              <span class="adb-click-key" data-key="4" data-serial="${unit.serial}">◀ Back</span>
+              <span class="adb-click-key" data-key="3" data-serial="${unit.serial}">● Home</span>
+              <span class="adb-click-key" data-key="66" data-serial="${unit.serial}">⏎ Enter</span>
             </div>
           </div>
-        ` : `
-          <!-- Unpaired Screen -->
-          <div class="phone-unpaired-screen">
-            <div class="unpaired-icon">💬</div>
-            <div class="unpaired-title">WhatsApp Unpaired</div>
-            <div class="unpaired-subtitle">Scan QR code to activate this phone instance</div>
-            ${isQrReady ? `
-              <button class="btn btn-primary qr-action-btn" data-id="${session.id}" style="font-size: 11px;">
-                Pair QR Code
-              </button>
-            ` : `
-              <button class="btn btn-secondary reconnect-action-btn" data-id="${session.id}" style="font-size: 11px;">
-                Connect Instance
-              </button>
-            `}
-          </div>
-        `}
-      </div>
+        </div>
 
-      <!-- Phone Bottom Controls -->
-      <div class="device-card-footer">
-        ${isConnected ? `
-          <button class="btn-card btn-master ${isMaster ? 'is-active' : ''} master-toggle-btn" data-id="${session.id}">
+        <div class="device-card-footer">
+          <button class="btn-card btn-master ${isMaster ? 'is-active' : ''} master-toggle-btn" data-id="${unit.serial}">
             ${isMaster ? '★ Master' : 'Set Master'}
           </button>
-        ` : isQrReady ? `
-          <button class="btn-card highlight qr-action-btn" data-id="${session.id}">Pair QR</button>
-        ` : `
-          <button class="btn-card reconnect-action-btn" data-id="${session.id}">Connect</button>
-        `}
-        <button class="btn-card danger delete-action-btn" data-id="${session.id}" title="Remove Instance">&times;</button>
-      </div>
-    `;
+          <button class="btn-card adb-click-key" data-key="4" data-serial="${unit.serial}">Back</button>
+          <button class="btn-card adb-click-key" data-key="3" data-serial="${unit.serial}">Home</button>
+        </div>
+      `;
+      phoneFarmGridEl.appendChild(card);
+    } else {
+      // Render Web WhatsApp Session Frame
+      const numId = getNumericId(unit.id, index);
+      const isConnected = unit.status === 'connected';
+      const isQrReady = unit.status === 'qr_ready';
 
-    phoneFarmGridEl.appendChild(card);
+      if (!instanceChatState.has(unit.id)) {
+        instanceChatState.set(unit.id, {
+          activeContact: null,
+          messages: [
+            { text: 'Session ready.', type: 'incoming', time: '10:30' }
+          ]
+        });
+      }
+
+      const state = instanceChatState.get(unit.id);
+      const card = document.createElement('div');
+      card.className = `device-card ${isMaster ? 'is-master' : ''}`;
+      card.id = `device-card-${unit.id}`;
+
+      const statusTag = isConnected ? 'online' : isQrReady ? 'standby' : 'offline';
+      const statusLabel = isConnected ? 'Online' : isQrReady ? 'Ready' : 'Offline';
+
+      card.innerHTML = `
+        <div class="device-card-header">
+          <div class="instance-label">
+            <span>Unit ${numId}</span>
+            <span class="master-indicator">MASTER</span>
+          </div>
+          <span class="instance-tag tag-${statusTag}">${statusLabel}</span>
+        </div>
+
+        <div class="phone-screen-viewport" id="viewport-${unit.id}">
+          <div class="ghost-cursor" id="cursor-${unit.id}"></div>
+
+          <div class="phone-system-bar">
+            <span>10:42</span>
+            <span>4G • 98%</span>
+          </div>
+
+          ${isConnected ? `
+            <div class="wa-app-header">
+              <span class="wa-app-title">WhatsApp</span>
+              <div class="wa-header-actions">
+                <span>🔍</span>
+                <span>⋮</span>
+              </div>
+            </div>
+
+            <!-- View A: Chats List View -->
+            <div class="wa-chats-view ${state.activeContact ? 'hidden' : ''}" id="chats-view-${unit.id}" style="${state.activeContact ? 'display: none;' : ''}">
+              ${(() => {
+                const chats = getSessionChats(unit.id);
+                if (chats.length === 0) {
+                  return `
+                    <div style="padding: 30px 12px; text-align: center; color: var(--text-muted); font-size: 10px;">
+                      <p style="font-weight: 500; color: var(--text-secondary);">Syncing Real WhatsApp Chats...</p>
+                      <p style="margin-top: 4px; font-size: 8px;">Recent chats appear automatically.</p>
+                    </div>
+                  `;
+                }
+                return chats.map((c, cIdx) => `
+                  <div class="wa-chat-item ${state.activeContact?.id === c.id ? 'active' : ''}" data-session="${unit.id}" data-contact-idx="${cIdx}">
+                    <div class="chat-avatar">${c.avatar}</div>
+                    <div class="chat-info">
+                      <div class="chat-name-row">
+                        <span class="chat-name">${c.name}</span>
+                        <span class="chat-time">${c.time}</span>
+                      </div>
+                      <div class="chat-last-msg">${c.lastMsg || 'Tap to open chat'}</div>
+                    </div>
+                  </div>
+                `).join('');
+              })()}
+            </div>
+
+            <!-- View B: Conversation Screen -->
+            <div class="wa-conversation-view ${state.activeContact ? 'active' : ''}" id="conv-view-${unit.id}">
+              <div class="conv-header">
+                <button class="conv-back-btn" data-session="${unit.id}">&lsaquo;</button>
+                <div class="chat-avatar" style="width: 20px; height: 20px; font-size: 9px;" id="conv-avatar-${unit.id}">
+                  ${state.activeContact ? state.activeContact.avatar : 'WA'}
+                </div>
+                <span class="conv-contact-name" id="conv-title-${unit.id}">
+                  ${state.activeContact ? state.activeContact.name : 'Select Chat'}
+                </span>
+              </div>
+
+              <div class="conv-messages-scroll" id="conv-msgs-${unit.id}">
+                ${state.messages.map(m => `
+                  <div class="msg-bubble ${m.type}">
+                    ${m.text}
+                    <div class="msg-meta">${m.time} &#10003;&#10003;</div>
+                  </div>
+                `).join('')}
+              </div>
+
+              <div class="conv-input-bar">
+                <input type="text" class="conv-input" id="input-${unit.id}" placeholder="Type a message..." data-session="${unit.id}">
+                <button class="conv-send-btn" id="send-${unit.id}" data-session="${unit.id}">&#10148;</button>
+              </div>
+            </div>
+          ` : `
+            <div class="phone-unpaired-screen">
+              <div class="unpaired-icon">💬</div>
+              <div class="unpaired-title">WhatsApp Unpaired</div>
+              <div class="unpaired-subtitle">Scan QR code to activate this phone instance</div>
+              ${isQrReady ? `
+                <button class="btn btn-primary qr-action-btn" data-id="${unit.id}" style="font-size: 11px;">
+                  Pair QR Code
+                </button>
+              ` : `
+                <button class="btn btn-secondary reconnect-action-btn" data-id="${unit.id}" style="font-size: 11px;">
+                  Connect Instance
+                </button>
+              `}
+            </div>
+          `}
+        </div>
+
+        <div class="device-card-footer">
+          ${isConnected ? `
+            <button class="btn-card btn-master ${isMaster ? 'is-active' : ''} master-toggle-btn" data-id="${unit.id}">
+              ${isMaster ? '★ Master' : 'Set Master'}
+            </button>
+          ` : isQrReady ? `
+            <button class="btn-card highlight qr-action-btn" data-id="${unit.id}">Pair QR</button>
+          ` : `
+            <button class="btn-card reconnect-action-btn" data-id="${unit.id}">Connect</button>
+          `}
+          <button class="btn-card danger delete-action-btn" data-id="${unit.id}" title="Remove Instance">&times;</button>
+        </div>
+      `;
+      phoneFarmGridEl.appendChild(card);
+    }
   });
 
   attachInteractiveEvents();
 }
 
-// 6. Master-Slave Interactive Event Mirroring
+// 6. Interactive Event Mirroring
 function attachInteractiveEvents() {
   // Master selection toggle
   document.querySelectorAll('.master-toggle-btn').forEach(btn => {
@@ -317,13 +394,11 @@ function attachInteractiveEvents() {
   if (masterSessionId) {
     const masterViewport = document.getElementById(`viewport-${masterSessionId}`);
     if (masterViewport) {
-      // Mouse move cursor mirror
       masterViewport.addEventListener('mousemove', (e) => {
         const rect = masterViewport.getBoundingClientRect();
         const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
         const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
 
-        // Replicate ghost cursor to all slave devices
         document.querySelectorAll('.ghost-cursor').forEach(cursor => {
           const card = cursor.closest('.device-card');
           if (card && card.id !== `device-card-${masterSessionId}`) {
@@ -342,7 +417,31 @@ function attachInteractiveEvents() {
     }
   }
 
-  // Chat Item Click (Selecting contact in WhatsApp)
+  // Android Tap Mirroring: Click on any Android canvas
+  document.querySelectorAll('.android-canvas-sim').forEach(canvas => {
+    canvas.addEventListener('click', (e) => {
+      const serial = canvas.getAttribute('data-serial');
+      const rect = canvas.getBoundingClientRect();
+      const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+      const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+
+      logFeed(`Tap at (${Math.round(xPct)}%, ${Math.round(yPct)}%) -> Mirroring to Android devices`);
+      socket.emit('adb_tap', { xPct, yPct });
+    });
+  });
+
+  // Android Key Click
+  document.querySelectorAll('.adb-click-key').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const keyCode = parseInt(btn.getAttribute('data-key'), 10);
+      const serial = btn.getAttribute('data-serial');
+      socket.emit('adb_key', { keyCode, targetSerials: serial ? [serial] : null });
+      logFeed(`Dispatched Android KeyEvent [${keyCode}]`);
+    });
+  });
+
+  // Web Chat Item Click (Selecting contact in WhatsApp)
   document.querySelectorAll('.wa-chat-item').forEach(item => {
     item.addEventListener('click', () => {
       const sessionId = item.getAttribute('data-session');
@@ -351,7 +450,6 @@ function attachInteractiveEvents() {
       const contact = chats[contactIdx];
       if (!contact) return;
 
-      // If clicked on Master phone, mirror open to ALL devices!
       if (sessionId === masterSessionId) {
         logFeed(`Master opened [${contact.name}] -> Synchronizing all devices.`);
         sessionsState.forEach((s) => {
@@ -390,7 +488,6 @@ function attachInteractiveEvents() {
       const sessionId = input.getAttribute('data-session');
       if (sessionId === masterSessionId) {
         const text = e.target.value;
-        // Mirror keystrokes to all slave inputs!
         document.querySelectorAll('.conv-input').forEach(otherInput => {
           if (otherInput !== input) {
             otherInput.value = text;
@@ -444,7 +541,6 @@ function openConversationView(sessionId, contact) {
   const state = instanceChatState.get(sessionId) || { activeContact: null, messages: [] };
   state.activeContact = contact;
 
-  // Retrieve real historical messages for this contact if available
   const realMsgs = realMessagesState.get(sessionId)?.[contact.id];
   if (realMsgs && Array.isArray(realMsgs) && realMsgs.length > 0) {
     state.messages = realMsgs;
@@ -488,7 +584,7 @@ function closeConversationView(sessionId) {
   if (convView) convView.classList.remove('active');
 }
 
-// 8. Synchronized Message Dispatch Handler
+// 8. Synchronized Message Dispatch Handler (Hybrid: Web + Android)
 function handleSendMessage(sourceSessionId) {
   const inputEl = document.getElementById(`input-${sourceSessionId}`);
   if (!inputEl) return;
@@ -499,9 +595,9 @@ function handleSendMessage(sourceSessionId) {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   if (isMaster) {
-    logFeed(`🚀 MASTER FIRED MESSAGE: "${text}" -> Synchronizing across all devices!`);
+    logFeed(`🚀 MASTER FIRED: "${text}" -> Synchronizing across Web & Android fleets!`);
 
-    // Add message bubble to ALL connected device screens!
+    // Web screens animation
     sessionsState.forEach((s) => {
       if (s.status === 'connected') {
         appendMessageToScreen(s.id, text, 'outgoing', time);
@@ -510,7 +606,13 @@ function handleSendMessage(sourceSessionId) {
       }
     });
 
-    // Also dispatch to actual WhatsApp recipient via backend!
+    // Also type text and send on BlueStacks Android instances!
+    if (adbDevicesState.length > 0) {
+      socket.emit('adb_text', { text });
+      setTimeout(() => socket.emit('adb_key', { keyCode: 66 }), 300); // Press Enter to send
+    }
+
+    // Web delivery via Baileys
     const activeContact = instanceChatState.get(sourceSessionId)?.activeContact;
     const targetPhone = activeContact ? (activeContact.id || activeContact.phone) : targetRecipientInput.value.trim();
 
@@ -524,7 +626,6 @@ function handleSendMessage(sourceSessionId) {
       });
     }
   } else {
-    // Send single from slave
     appendMessageToScreen(sourceSessionId, text, 'outgoing', time);
     inputEl.value = '';
     const activeContact = instanceChatState.get(sourceSessionId)?.activeContact;
@@ -576,8 +677,47 @@ closePhoneModalBtn.addEventListener('click', () => {
   currentQRModalId = null;
 });
 
-// 10. Socket.io Handlers
-socket.on('initial_state', ({ sessions, chats, messages }) => {
+// 10. Filter Chips & ADB Key Click Handlers
+document.querySelectorAll('.filter-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    currentFleetFilter = chip.getAttribute('data-filter');
+    renderDeviceGrid();
+    logFeed(`Switched view to [${currentFleetFilter.toUpperCase()}]`);
+  });
+});
+
+if (scanAdbBtn) {
+  scanAdbBtn.addEventListener('click', () => {
+    socket.emit('adb_refresh');
+    logFeed('Scanning for running BlueStacks / Cloud Phone ADB devices...');
+  });
+}
+
+if (adbBackBtn) {
+  adbBackBtn.addEventListener('click', () => {
+    socket.emit('adb_key', { keyCode: 4 });
+    logFeed('Dispatched Back Key (KeyEvent 4) to Android fleet.');
+  });
+}
+
+if (adbHomeBtn) {
+  adbHomeBtn.addEventListener('click', () => {
+    socket.emit('adb_key', { keyCode: 3 });
+    logFeed('Dispatched Home Key (KeyEvent 3) to Android fleet.');
+  });
+}
+
+if (adbEnterBtn) {
+  adbEnterBtn.addEventListener('click', () => {
+    socket.emit('adb_key', { keyCode: 66 });
+    logFeed('Dispatched Enter Key (KeyEvent 66) to Android fleet.');
+  });
+}
+
+// 11. Socket.io Handlers
+socket.on('initial_state', ({ sessions, chats, messages, adbDevices }) => {
   sessionsState.clear();
   sessions.forEach(s => sessionsState.set(s.id, s));
   if (chats) {
@@ -590,8 +730,17 @@ socket.on('initial_state', ({ sessions, chats, messages }) => {
       realMessagesState.set(id, msgMap);
     }
   }
+  if (adbDevices) {
+    adbDevicesState = adbDevices;
+  }
   renderDeviceGrid();
-  logFeed(`Loaded ${sessions.length} device instances with real chat sync.`);
+  logFeed(`Loaded ${sessions.length} Web instances and ${adbDevicesState.length} Android devices.`);
+});
+
+socket.on('adb_devices_update', (devices) => {
+  adbDevicesState = devices || [];
+  renderDeviceGrid();
+  logFeed(`ADB Fleet updated: ${adbDevicesState.length} Android emulators detected.`);
 });
 
 socket.on('chats_updated', ({ id, chats }) => {
@@ -637,7 +786,6 @@ socket.on('session_qr', ({ id, qr }) => {
   }
 });
 
-// Telemetry & Action Animations
 socket.on('action_started', (data) => {
   logFeed(`Dispatching [${data.type.toUpperCase()}] across ${data.total} units.`);
 });
@@ -649,19 +797,15 @@ socket.on('action_progress', (data) => {
 socket.on('action_completed', (data) => {
   logFeed(`Broadcast complete. ${data.results.length} instances processed.`);
   fireBroadcastBtn.disabled = false;
-  fireGroupJoinBtn.disabled = false;
-  fireReactBtn.disabled = false;
 });
 
 socket.on('operation_error', (data) => {
   logFeed(`[Error] ${data.message}`);
   alert(data.message);
   fireBroadcastBtn.disabled = false;
-  fireGroupJoinBtn.disabled = false;
-  fireReactBtn.disabled = false;
 });
 
-// 11. Add Buttons
+// 12. Add Buttons
 addSingleUnitBtn.addEventListener('click', () => {
   const num = sessionsState.size + 1;
   const id = `account_${String(num).padStart(2, '0')}`;
@@ -688,7 +832,7 @@ if (clearUnpairedBtn) {
   });
 }
 
-// Action Dispatches from Top Console
+// Action Dispatches from Top Console (Unified)
 fireBroadcastBtn.addEventListener('click', () => {
   const target = targetRecipientInput.value.trim();
   const message = broadcastMessageInput.value.trim();
@@ -696,7 +840,7 @@ fireBroadcastBtn.addEventListener('click', () => {
   const maxDelay = parseFloat(maxJitterInput.value) * 1000 || 2500;
   const simulateTyping = humanTypingCheck.checked;
 
-  if (!target) {
+  if (!target && adbDevicesState.length === 0) {
     alert('Please enter a target recipient phone number or group JID');
     return;
   }
@@ -706,9 +850,9 @@ fireBroadcastBtn.addEventListener('click', () => {
   }
 
   fireBroadcastBtn.disabled = true;
-  logFeed(`Firing synchronized broadcast...`);
+  logFeed(`Firing synchronized broadcast to Web & Android fleets...`);
 
-  // Mirror onto screen
+  // Web screens animation
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   sessionsState.forEach(s => {
     if (s.status === 'connected') {
@@ -716,11 +860,21 @@ fireBroadcastBtn.addEventListener('click', () => {
     }
   });
 
-  socket.emit('mirror_send', {
-    target,
-    message,
-    minDelay,
-    maxDelay,
-    simulateTyping
-  });
+  // Android text input & enter
+  if (adbDevicesState.length > 0) {
+    socket.emit('adb_text', { text: message });
+    setTimeout(() => socket.emit('adb_key', { keyCode: 66 }), 400);
+  }
+
+  if (target) {
+    socket.emit('mirror_send', {
+      target,
+      message,
+      minDelay,
+      maxDelay,
+      simulateTyping
+    });
+  } else {
+    fireBroadcastBtn.disabled = false;
+  }
 });

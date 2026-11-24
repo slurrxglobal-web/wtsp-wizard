@@ -95,6 +95,9 @@ export class SessionManager extends EventEmitter {
       retryCount: 0
     };
 
+    // Load any cached chats and discover contacts from stored session keys
+    this.loadCachedData(sessionId, sessionData, sessionAuthPath);
+
     this.sessions.set(sessionId, sessionData);
     this.emit('session_update', this.getSanitizedSession(sessionId));
 
@@ -258,6 +261,7 @@ export class SessionManager extends EventEmitter {
           }
         }
         this.emit('chats_updated', { id: sessionId, chats: this.getSanitizedChats(sessionId) });
+        this.saveCachedData(sessionId, sessionData, sessionAuthPath);
       });
 
       // Updated or new incoming chats
@@ -276,6 +280,7 @@ export class SessionManager extends EventEmitter {
           });
         }
         this.emit('chats_updated', { id: sessionId, chats: this.getSanitizedChats(sessionId) });
+        this.saveCachedData(sessionId, sessionData, sessionAuthPath);
       });
 
       // Live Messages
@@ -306,6 +311,7 @@ export class SessionManager extends EventEmitter {
         }
         this.emit('chats_updated', { id: sessionId, chats: this.getSanitizedChats(sessionId) });
         this.emit('messages_updated', { id: sessionId, messages: this.getSanitizedMessages(sessionId) });
+        this.saveCachedData(sessionId, sessionData, sessionAuthPath);
       });
 
       return sessionData;
@@ -450,6 +456,92 @@ export class SessionManager extends EventEmitter {
       result[id] = this.getSanitizedChats(id);
     }
     return result;
+  }
+
+  /**
+   * Loads cached chats and messages from session directory, or discovers from session files
+   */
+  loadCachedData(sessionId, sessionData, sessionAuthPath) {
+    const chatsCachePath = path.join(sessionAuthPath, 'chats_cache.json');
+    const messagesCachePath = path.join(sessionAuthPath, 'messages_cache.json');
+
+    if (fs.existsSync(chatsCachePath)) {
+      try {
+        const cachedChats = JSON.parse(fs.readFileSync(chatsCachePath, 'utf8'));
+        for (const ch of cachedChats) {
+          sessionData.chats.set(ch.id, ch);
+        }
+      } catch (e) {}
+    }
+
+    if (fs.existsSync(messagesCachePath)) {
+      try {
+        const cachedMsgs = JSON.parse(fs.readFileSync(messagesCachePath, 'utf8'));
+        for (const [jid, msgs] of Object.entries(cachedMsgs)) {
+          sessionData.messages.set(jid, msgs);
+        }
+      } catch (e) {}
+    }
+
+    // If chats are still empty, scan session files to restore contacts
+    if (sessionData.chats.size === 0 && fs.existsSync(sessionAuthPath)) {
+      try {
+        const files = fs.readdirSync(sessionAuthPath);
+        for (const file of files) {
+          const matchSession = file.match(/^session-(\d+)\./);
+          const matchGroup = file.match(/^sender-key-([^@]+@g\.us)/);
+
+          if (matchSession) {
+            const num = matchSession[1];
+            const jid = `${num}@s.whatsapp.net`;
+            if (!sessionData.chats.has(jid)) {
+              sessionData.chats.set(jid, {
+                id: jid,
+                name: num,
+                time: 'Recent',
+                unread: 0,
+                lastMsg: 'Tap to open chat'
+              });
+            }
+          } else if (matchGroup) {
+            const jid = matchGroup[1];
+            if (!sessionData.chats.has(jid)) {
+              sessionData.chats.set(jid, {
+                id: jid,
+                name: 'WhatsApp Group',
+                time: 'Recent',
+                unread: 0,
+                lastMsg: 'Tap to open chat'
+              });
+            }
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  /**
+   * Persists current session chats and messages to disk
+   */
+  saveCachedData(sessionId, sessionData, sessionAuthPath) {
+    try {
+      if (!fs.existsSync(sessionAuthPath)) {
+        fs.mkdirSync(sessionAuthPath, { recursive: true });
+      }
+      const chatsCachePath = path.join(sessionAuthPath, 'chats_cache.json');
+      const messagesCachePath = path.join(sessionAuthPath, 'messages_cache.json');
+
+      fs.writeFileSync(
+        chatsCachePath,
+        JSON.stringify(Array.from(sessionData.chats.values()), null, 2)
+      );
+
+      const msgObj = {};
+      for (const [jid, msgs] of sessionData.messages) {
+        msgObj[jid] = msgs;
+      }
+      fs.writeFileSync(messagesCachePath, JSON.stringify(msgObj, null, 2));
+    } catch (e) {}
   }
 
   /**

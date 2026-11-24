@@ -125,10 +125,25 @@
   <main class="studio-main">
     <div class="main-bar">
       <div class="bar-title">
-        <h2>Device Farm Instances</h2>
+        <div class="title-with-filters">
+          <h2>Device Farm Instances</h2>
+          <div class="fleet-filter-group">
+            <button class="filter-chip active" data-filter="all">All Fleets (<span id="countAll">0</span>)</button>
+            <button class="filter-chip" data-filter="android">Android / BlueStacks (<span id="countAndroid">0</span>)</button>
+            <button class="filter-chip" data-filter="web">Web WhatsApp (<span id="countWeb">0</span>)</button>
+          </div>
+        </div>
         <span class="bar-count" id="activeFilterCount">Active Instances</span>
       </div>
       <div class="bar-tools">
+        <button id="scanAdbBtn" class="btn btn-secondary btn-sm" title="Scan running BlueStacks & Cloud Phones">
+          Scan ADB
+        </button>
+        <div class="android-key-bar" title="Hardware Keys Mirror (All Android)">
+          <button id="adbBackBtn" class="btn-key" title="Back (KeyEvent 4)">◀</button>
+          <button id="adbHomeBtn" class="btn-key" title="Home (KeyEvent 3)">●</button>
+          <button id="adbEnterBtn" class="btn-key" title="Enter (KeyEvent 66)">⏎</button>
+        </div>
         <span id="fleetStatusText" class="status-indicator">STANDBY</span>
       </div>
     </div>

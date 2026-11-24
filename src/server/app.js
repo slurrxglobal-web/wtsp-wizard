@@ -5,6 +5,7 @@ import cors from 'cors';
 import { Server as SocketIOServer } from 'socket.io';
 import { SessionManager } from '../core/SessionManager.js';
 import { ActionDispatcher } from '../core/ActionDispatcher.js';
+import { AdbFleetBridge } from '../core/AdbFleetBridge.js';
 import { setupSocketHandlers } from './socket.js';
 
 const app = express();
@@ -27,9 +28,36 @@ app.use(express.static(publicDir));
 // Initialize Core Managers
 const sessionManager = new SessionManager();
 const actionDispatcher = new ActionDispatcher(sessionManager);
+const adbBridge = new AdbFleetBridge();
 
 // Setup Socket.io real-time layer
-setupSocketHandlers(io, sessionManager, actionDispatcher);
+setupSocketHandlers(io, sessionManager, actionDispatcher, adbBridge);
+
+// Start background ADB auto-polling for BlueStacks / Cloud Phones
+adbBridge.startAutoPoll(4000);
+
+// REST API Endpoints
+app.get('/api/adb/devices', (req, res) => {
+  res.json({ success: true, devices: adbBridge.getAllDevices() });
+});
+
+app.post('/api/adb/tap', async (req, res) => {
+  const { xPct, yPct, targetSerials } = req.body;
+  const result = await adbBridge.mirrorTap(xPct, yPct, targetSerials);
+  res.json(result);
+});
+
+app.post('/api/adb/text', async (req, res) => {
+  const { text, targetSerials } = req.body;
+  const result = await adbBridge.mirrorText(text, targetSerials);
+  res.json(result);
+});
+
+app.post('/api/adb/key', async (req, res) => {
+  const { keyCode, targetSerials } = req.body;
+  const result = await adbBridge.mirrorKey(keyCode, targetSerials);
+  res.json(result);
+});
 
 // REST API Endpoints
 app.get('/api/sessions', (req, res) => {
