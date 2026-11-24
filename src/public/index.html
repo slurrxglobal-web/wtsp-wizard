@@ -67,9 +67,7 @@
   <section id="commandConsole" class="command-console">
     <div class="console-top">
       <div class="console-nav">
-        <button class="nav-tab active" data-tab="tab-broadcast">Broadcast Dispatch</button>
-        <button class="nav-tab" data-tab="tab-group-join">Group Join</button>
-        <button class="nav-tab" data-tab="tab-reaction">Message Reaction</button>
+        <span class="console-title-label">Fleet Broadcast Controller</span>
       </div>
       <div class="console-tools">
         <button id="collapseConsoleBtn" class="btn-icon" title="Minimize Console">&minus;</button>
@@ -77,7 +75,7 @@
     </div>
 
     <div class="console-body">
-      <!-- Tab 1: Broadcast -->
+      <!-- Broadcast Controls -->
       <div id="tab-broadcast" class="console-tab-pane active">
         <div class="form-grid">
           <div class="form-field flex-1">
@@ -108,49 +106,6 @@
           <div class="form-field width-auto submit-cell">
             <button id="fireBroadcastBtn" class="btn btn-action">
               Dispatch to Fleet
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab 2: Group Join -->
-      <div id="tab-group-join" class="console-tab-pane">
-        <div class="form-grid">
-          <div class="form-field flex-3">
-            <label for="groupInviteLink">WhatsApp Group Invite Link</label>
-            <input type="text" id="groupInviteLink" placeholder="https://chat.whatsapp.com/..." class="input-base">
-          </div>
-          <div class="form-field width-auto submit-cell">
-            <button id="fireGroupJoinBtn" class="btn btn-action">
-              Join Group (All Devices)
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab 3: Reaction -->
-      <div id="tab-reaction" class="console-tab-pane">
-        <div class="form-grid">
-          <div class="form-field flex-1">
-            <label for="reactChatJid">Chat Recipient / Group JID</label>
-            <input type="text" id="reactChatJid" placeholder="Phone or Group JID" class="input-base">
-          </div>
-          <div class="form-field flex-1">
-            <label for="reactMessageId">Message ID</label>
-            <input type="text" id="reactMessageId" placeholder="Message ID string" class="input-base">
-          </div>
-          <div class="form-field width-auto">
-            <label>Reaction</label>
-            <div class="reaction-selector">
-              <button class="react-btn active" data-emoji="❤️">❤️</button>
-              <button class="react-btn" data-emoji="👍">👍</button>
-              <button class="react-btn" data-emoji="🔥">🔥</button>
-              <button class="react-btn" data-emoji="👏">👏</button>
-            </div>
-          </div>
-          <div class="form-field width-auto submit-cell">
-            <button id="fireReactBtn" class="btn btn-action">
-              Execute Reaction
             </button>
           </div>
         </div>

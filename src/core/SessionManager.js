@@ -30,9 +30,17 @@ export class SessionManager extends EventEmitter {
       const items = fs.readdirSync(this.sessionsDir);
       for (const item of items) {
         const sessionPath = path.join(this.sessionsDir, item);
+        const credsFile = path.join(sessionPath, 'creds.json');
         if (fs.statSync(sessionPath).isDirectory()) {
-          console.log(`[SessionManager] Restoring saved session: ${item}`);
-          await this.initSession(item, item);
+          if (fs.existsSync(credsFile)) {
+            console.log(`[SessionManager] Restoring authenticated session: ${item}`);
+            await this.initSession(item, item);
+          } else {
+            // Clean empty unauthenticated folders
+            try {
+              fs.rmSync(sessionPath, { recursive: true, force: true });
+            } catch (e) {}
+          }
         }
       }
     } catch (err) {
@@ -82,7 +90,7 @@ export class SessionManager extends EventEmitter {
         logger: this.logger,
         printQRInTerminal: false,
         auth: state,
-        browser: Browsers.macOS('Desktop'),
+        browser: Browsers.ubuntu('Chrome'),
         syncFullHistory: false,
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
@@ -91,7 +99,13 @@ export class SessionManager extends EventEmitter {
 
       sessionData.sock = sock;
 
-      sock.ev.on('creds.update', saveCreds);
+      sock.ev.on('creds.update', async () => {
+        try {
+          await saveCreds();
+        } catch (e) {
+          console.error(`[${sessionId}] Error saving creds:`, e.message);
+        }
+      });
 
       sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -110,11 +124,11 @@ export class SessionManager extends EventEmitter {
         if (connection === 'close') {
           sessionData.qr = null;
           const statusCode = lastDisconnect?.error?.output?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+          const credsFileExists = fs.existsSync(path.join(sessionAuthPath, 'creds.json'));
 
-          console.log(`[${sessionId}] Connection closed. Code: ${statusCode}, Reconnect: ${shouldReconnect}`);
+          console.log(`[${sessionId}] Connection closed. Code: ${statusCode}, HasCreds: ${credsFileExists}`);
 
-          if (statusCode === DisconnectReason.loggedOut) {
+          if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
             sessionData.status = 'logged_out';
             sessionData.user = null;
             try {
@@ -122,19 +136,38 @@ export class SessionManager extends EventEmitter {
             } catch (rmErr) {
               console.error(`[${sessionId}] Failed to delete session dir:`, rmErr.message);
             }
-          } else if (statusCode === 408) {
-            // QR scan timeout - do not spam reconnect
-            sessionData.status = 'disconnected';
-            sessionData.qr = null;
-          } else {
-            sessionData.status = 'disconnected';
-            // Auto reconnect only if already authenticated session had network drops
-            if (sessionData.user && sessionData.retryCount < 3) {
-              sessionData.retryCount++;
-              setTimeout(() => this.initSession(sessionId, label), 4000);
-            }
+            this.emit('session_update', this.getSanitizedSession(sessionId));
+            return;
           }
 
+          // Case 1: WhatsApp requested immediate restart right after QR scan (Code 515)
+          if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+            console.log(`[${sessionId}] QR successfully paired! Code 515 (restartRequired). Reconnecting immediately...`);
+            sessionData.status = 'connecting';
+            this.emit('session_update', this.getSanitizedSession(sessionId));
+            setTimeout(() => this.initSession(sessionId, label), 800);
+            return;
+          }
+
+          // Case 2: Saved credentials exist (already paired or just paired) -> always auto reconnect
+          if (credsFileExists) {
+            console.log(`[${sessionId}] Saved credentials found. Reconnecting (Code: ${statusCode})...`);
+            sessionData.status = 'connecting';
+            this.emit('session_update', this.getSanitizedSession(sessionId));
+            setTimeout(() => this.initSession(sessionId, label), 1500);
+            return;
+          }
+
+          // Case 3: Pure QR timeout without scan (Code 408)
+          if (statusCode === 408 || statusCode === DisconnectReason.timedOut) {
+            sessionData.status = 'disconnected';
+            sessionData.qr = null;
+            this.emit('session_update', this.getSanitizedSession(sessionId));
+            return;
+          }
+
+          // Other disconnects
+          sessionData.status = 'disconnected';
           this.emit('session_update', this.getSanitizedSession(sessionId));
         } else if (connection === 'open') {
           sessionData.status = 'connected';

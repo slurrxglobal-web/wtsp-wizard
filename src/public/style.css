@@ -351,6 +351,15 @@ body {
 
 .console-nav {
   display: flex;
+  align-items: center;
+}
+
+.console-title-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding: 12px 0;
+  letter-spacing: -0.2px;
 }
 
 .nav-tab {

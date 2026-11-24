@@ -38,13 +38,8 @@ const broadcastMessageInput = document.getElementById('broadcastMessage');
 const minJitterInput = document.getElementById('minJitter');
 const maxJitterInput = document.getElementById('maxJitter');
 const humanTypingCheck = document.getElementById('humanTypingCheck');
-const groupInviteLinkInput = document.getElementById('groupInviteLink');
-const reactChatJidInput = document.getElementById('reactChatJid');
-const reactMessageIdInput = document.getElementById('reactMessageId');
 
 const fireBroadcastBtn = document.getElementById('fireBroadcastBtn');
-const fireGroupJoinBtn = document.getElementById('fireGroupJoinBtn');
-const fireReactBtn = document.getElementById('fireReactBtn');
 const addSingleUnitBtn = document.getElementById('addSingleUnitBtn');
 const addBatchUnitsBtn = document.getElementById('addBatchUnitsBtn');
 const clearUnpairedBtn = document.getElementById('clearUnpairedBtn');
@@ -607,27 +602,6 @@ if (clearUnpairedBtn) {
   });
 }
 
-// 12. Console Tabs
-document.querySelectorAll('.nav-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.console-tab-pane').forEach(p => p.classList.remove('active'));
-
-    tab.classList.add('active');
-    const targetId = tab.getAttribute('data-tab');
-    document.getElementById(targetId).classList.add('active');
-  });
-});
-
-// Reaction Select
-document.querySelectorAll('.react-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.react-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    selectedEmoji = btn.getAttribute('data-emoji');
-  });
-});
-
 // Action Dispatches from Top Console
 fireBroadcastBtn.addEventListener('click', () => {
   const target = targetRecipientInput.value.trim();
@@ -662,35 +636,5 @@ fireBroadcastBtn.addEventListener('click', () => {
     minDelay,
     maxDelay,
     simulateTyping
-  });
-});
-
-fireGroupJoinBtn.addEventListener('click', () => {
-  const inviteLink = groupInviteLinkInput.value.trim();
-  if (!inviteLink) {
-    alert('Please enter group invite link');
-    return;
-  }
-
-  fireGroupJoinBtn.disabled = true;
-  logFeed(`Executing group join across active instances...`);
-  socket.emit('mirror_join', { inviteLink });
-});
-
-fireReactBtn.addEventListener('click', () => {
-  const target = reactChatJidInput.value.trim();
-  const messageId = reactMessageIdInput.value.trim();
-
-  if (!target || !messageId) {
-    alert('Please enter target chat and message ID');
-    return;
-  }
-
-  fireReactBtn.disabled = true;
-  logFeed(`Executing reaction [${selectedEmoji}] across active instances...`);
-  socket.emit('mirror_react', {
-    target,
-    messageId,
-    emoji: selectedEmoji
   });
 });
