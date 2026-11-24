@@ -1,16 +1,22 @@
-// Studio Socket.io Client
+// Studio Socket.io Client & Master-Slave Mirror Engine
 const socket = io();
 
 // State
 let sessionsState = new Map();
 let currentQRModalId = null;
+let masterSessionId = null;
 let selectedEmoji = '❤️';
 
-// Supported Android Models for realism
-const DEVICE_MODELS = [
-  'SM-G986N', 'SM-A325N', 'SM-N981N', 'SM-A528N', 'SM-G781N',
-  'SM-A336N', 'SM-A346N', 'SM-G988N', 'SM-S908N', 'SM-S918N'
+// Mock contacts for realistic in-phone WhatsApp interface
+const MOCK_CONTACTS = [
+  { id: 'contact_1', name: 'Alpha Ops Team', avatar: 'AO', phone: '919876543210', lastMsg: 'Synchronized broadcast ready.', time: '10:41' },
+  { id: 'contact_2', name: 'VIP Leads Global', avatar: 'VL', phone: '919812345678', lastMsg: 'Campaign dispatched successfully.', time: '10:35' },
+  { id: 'contact_3', name: 'Beta Community Hub', avatar: 'BC', phone: '919765432100', lastMsg: 'Group joined.', time: '09:58' },
+  { id: 'contact_4', name: 'Support Node Direct', avatar: 'SN', phone: '919988776655', lastMsg: 'Standing by for instructions.', time: '09:20' }
 ];
+
+// Per-instance active conversation state
+const instanceChatState = new Map(); // sessionId -> { activeContact: null, messages: [] }
 
 // DOM Elements
 const totalUnitsCountEl = document.getElementById('totalUnitsCount');
@@ -67,7 +73,7 @@ themeSelectorEl.addEventListener('change', (e) => {
 
 initTheme();
 
-// 2. Activity Feed Helper
+// 2. Feed Logger
 function logFeed(msg) {
   const time = new Date().toLocaleTimeString();
   feedStreamEl.textContent = `[${time}] ${msg}`;
@@ -88,17 +94,13 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// 4. Device Model Helper
-function getDeviceModel(index) {
-  return DEVICE_MODELS[index % DEVICE_MODELS.length];
-}
-
+// 4. Numeric ID Formatter
 function getNumericId(id, fallbackIndex) {
   const digits = id.replace(/\D/g, '');
   return digits ? digits.padStart(2, '0') : String(fallbackIndex + 1).padStart(2, '0');
 }
 
-// 5. Render High-Density Device Grid
+// 5. Render Phone Farm Device Grid
 function renderDeviceGrid() {
   const sessions = Array.from(sessionsState.values());
   const connectedCount = sessions.filter(s => s.status === 'connected').length;
@@ -107,14 +109,25 @@ function renderDeviceGrid() {
   activeUnitsCountEl.textContent = connectedCount;
   activeFilterCountEl.textContent = `${connectedCount} / ${sessions.length} online`;
 
+  if (masterSessionId && !sessionsState.has(masterSessionId)) {
+    masterSessionId = null;
+  }
+
+  // Auto-elect first connected device as Master if none selected
+  if (!masterSessionId && connectedCount > 0) {
+    const firstConnected = sessions.find(s => s.status === 'connected');
+    if (firstConnected) masterSessionId = firstConnected.id;
+  }
+
   if (connectedCount > 0) {
-    fleetStatusTextEl.textContent = 'ONLINE // SYNCED';
-    fleetStatusTextEl.style.color = 'var(--status-online)';
-    fleetStatusTextEl.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+    fleetStatusTextEl.innerHTML = `
+      <div class="sync-status-badge">
+        <span class="sync-dot"></span>
+        <span>SYNC ACTIVE // MASTER: ${masterSessionId ? masterSessionId.toUpperCase() : 'NONE'}</span>
+      </div>
+    `;
   } else {
-    fleetStatusTextEl.textContent = 'STANDBY';
-    fleetStatusTextEl.style.color = 'var(--status-standby)';
-    fleetStatusTextEl.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+    fleetStatusTextEl.innerHTML = `<span class="status-indicator">STANDBY</span>`;
   }
 
   if (sessions.length === 0) {
@@ -130,44 +143,127 @@ function renderDeviceGrid() {
   phoneFarmGridEl.innerHTML = '';
   sessions.forEach((session, index) => {
     const numId = getNumericId(session.id, index);
-    const model = getDeviceModel(index);
     const isConnected = session.status === 'connected';
     const isQrReady = session.status === 'qr_ready';
+    const isMaster = session.id === masterSessionId;
+
+    if (!instanceChatState.has(session.id)) {
+      instanceChatState.set(session.id, {
+        activeContact: null,
+        messages: [
+          { text: 'Instance ready for commands.', type: 'incoming', time: '10:30' }
+        ]
+      });
+    }
+
+    const state = instanceChatState.get(session.id);
+    const card = document.createElement('div');
+    card.className = `device-card ${isMaster ? 'is-master' : ''}`;
+    card.id = `device-card-${session.id}`;
 
     const statusTag = isConnected ? 'online' : isQrReady ? 'standby' : 'offline';
     const statusLabel = isConnected ? 'Online' : isQrReady ? 'Ready' : 'Offline';
 
-    const userNumber = session.user?.id ? session.user.id.split('@')[0] : 'Unpaired';
-
-    const card = document.createElement('div');
-    card.className = 'device-card';
-    card.id = `device-card-${session.id}`;
-
     card.innerHTML = `
+      <!-- Phone Top Bar -->
       <div class="device-card-header">
-        <span class="instance-label">Unit ${numId}</span>
+        <div class="instance-label">
+          <span>Unit ${numId}</span>
+          <span class="master-indicator">MASTER</span>
+        </div>
         <span class="instance-tag tag-${statusTag}">${statusLabel}</span>
       </div>
 
-      <div class="device-screen-sim">
-        <div class="sim-number">${numId}</div>
-        <div class="sim-telemetry">
-          <span class="sim-model">${model}</span>
-          <span class="sim-user-id">${userNumber}</span>
+      <!-- Phone Screen Viewport -->
+      <div class="phone-screen-viewport" id="viewport-${session.id}">
+        <!-- Virtual Ghost Cursor for slave screens -->
+        <div class="ghost-cursor" id="cursor-${session.id}"></div>
+
+        <!-- System Clock & Status Bar -->
+        <div class="phone-system-bar">
+          <span>10:42</span>
+          <span>4G • 98%</span>
         </div>
-        <div class="sim-bubble-layer">
-          <div class="sim-chat-bubble" id="sim-bubble-${session.id}">
-            <span id="sim-text-${session.id}">...</span>
-            <div class="bubble-time-ticks">&#10003;&#10003;</div>
+
+        ${isConnected ? `
+          <!-- WhatsApp App Header -->
+          <div class="wa-app-header">
+            <span class="wa-app-title">WhatsApp</span>
+            <div class="wa-header-actions">
+              <span>🔍</span>
+              <span>⋮</span>
+            </div>
           </div>
-        </div>
+
+          <!-- View A: Chats List View -->
+          <div class="wa-chats-view ${state.activeContact ? 'hidden' : ''}" id="chats-view-${session.id}" style="${state.activeContact ? 'display: none;' : ''}">
+            ${MOCK_CONTACTS.map((c, cIdx) => `
+              <div class="wa-chat-item ${state.activeContact?.id === c.id ? 'active' : ''}" data-session="${session.id}" data-contact-idx="${cIdx}">
+                <div class="chat-avatar">${c.avatar}</div>
+                <div class="chat-info">
+                  <div class="chat-name-row">
+                    <span class="chat-name">${c.name}</span>
+                    <span class="chat-time">${c.time}</span>
+                  </div>
+                  <div class="chat-last-msg">${c.lastMsg}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+
+          <!-- View B: Conversation Screen -->
+          <div class="wa-conversation-view ${state.activeContact ? 'active' : ''}" id="conv-view-${session.id}">
+            <div class="conv-header">
+              <button class="conv-back-btn" data-session="${session.id}">&lsaquo;</button>
+              <div class="chat-avatar" style="width: 20px; height: 20px; font-size: 9px;" id="conv-avatar-${session.id}">
+                ${state.activeContact ? state.activeContact.avatar : 'WA'}
+              </div>
+              <span class="conv-contact-name" id="conv-title-${session.id}">
+                ${state.activeContact ? state.activeContact.name : 'Select Chat'}
+              </span>
+            </div>
+
+            <div class="conv-messages-scroll" id="conv-msgs-${session.id}">
+              ${state.messages.map(m => `
+                <div class="msg-bubble ${m.type}">
+                  ${m.text}
+                  <div class="msg-meta">${m.time} &#10003;&#10003;</div>
+                </div>
+              `).join('')}
+            </div>
+
+            <div class="conv-input-bar">
+              <input type="text" class="conv-input" id="input-${session.id}" placeholder="Type a message..." data-session="${session.id}">
+              <button class="conv-send-btn" id="send-${session.id}" data-session="${session.id}">&#10148;</button>
+            </div>
+          </div>
+        ` : `
+          <!-- Unpaired Screen -->
+          <div class="phone-unpaired-screen">
+            <div class="unpaired-icon">💬</div>
+            <div class="unpaired-title">WhatsApp Unpaired</div>
+            <div class="unpaired-subtitle">Scan QR code to activate this phone instance</div>
+            ${isQrReady ? `
+              <button class="btn btn-primary qr-action-btn" data-id="${session.id}" style="font-size: 11px;">
+                Pair QR Code
+              </button>
+            ` : `
+              <button class="btn btn-secondary reconnect-action-btn" data-id="${session.id}" style="font-size: 11px;">
+                Connect Instance
+              </button>
+            `}
+          </div>
+        `}
       </div>
 
+      <!-- Phone Bottom Controls -->
       <div class="device-card-footer">
-        ${isQrReady ? `
+        ${isConnected ? `
+          <button class="btn-card btn-master ${isMaster ? 'is-active' : ''} master-toggle-btn" data-id="${session.id}">
+            ${isMaster ? '★ Master' : 'Set Master'}
+          </button>
+        ` : isQrReady ? `
           <button class="btn-card highlight qr-action-btn" data-id="${session.id}">Pair QR</button>
-        ` : isConnected ? `
-          <button class="btn-card" style="color: var(--status-online);" disabled>Connected</button>
         ` : `
           <button class="btn-card reconnect-action-btn" data-id="${session.id}">Connect</button>
         `}
@@ -178,7 +274,120 @@ function renderDeviceGrid() {
     phoneFarmGridEl.appendChild(card);
   });
 
-  // Attach button events
+  attachInteractiveEvents();
+}
+
+// 6. Master-Slave Interactive Event Mirroring
+function attachInteractiveEvents() {
+  // Master selection toggle
+  document.querySelectorAll('.master-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      masterSessionId = id;
+      logFeed(`⭐ DESIGNATED MASTER CONTROLLER: ${id.toUpperCase()}`);
+      renderDeviceGrid();
+    });
+  });
+
+  // Attach Master Cursor & Interaction Listener
+  if (masterSessionId) {
+    const masterViewport = document.getElementById(`viewport-${masterSessionId}`);
+    if (masterViewport) {
+      // Mouse move cursor mirror
+      masterViewport.addEventListener('mousemove', (e) => {
+        const rect = masterViewport.getBoundingClientRect();
+        const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+        const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+
+        // Replicate ghost cursor to all slave devices
+        document.querySelectorAll('.ghost-cursor').forEach(cursor => {
+          const card = cursor.closest('.device-card');
+          if (card && card.id !== `device-card-${masterSessionId}`) {
+            cursor.style.left = `${xPct}%`;
+            cursor.style.top = `${yPct}%`;
+            cursor.classList.add('visible');
+          }
+        });
+      });
+
+      masterViewport.addEventListener('mouseleave', () => {
+        document.querySelectorAll('.ghost-cursor').forEach(cursor => {
+          cursor.classList.remove('visible');
+        });
+      });
+    }
+  }
+
+  // Chat Item Click (Selecting contact in WhatsApp)
+  document.querySelectorAll('.wa-chat-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const sessionId = item.getAttribute('data-session');
+      const contactIdx = parseInt(item.getAttribute('data-contact-idx'), 10);
+      const contact = MOCK_CONTACTS[contactIdx];
+
+      // If clicked on Master phone, mirror open to ALL devices!
+      if (sessionId === masterSessionId) {
+        logFeed(`Master selected [${contact.name}] -> Synchronizing all devices.`);
+        sessionsState.forEach((s) => {
+          if (s.status === 'connected') {
+            openConversationView(s.id, contact);
+          }
+        });
+      } else {
+        openConversationView(sessionId, contact);
+      }
+    });
+  });
+
+  // Back Button Click in Conversation View
+  document.querySelectorAll('.conv-back-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sessionId = btn.getAttribute('data-session');
+      if (sessionId === masterSessionId) {
+        logFeed(`Master backed out -> Returning all devices to chat list.`);
+        sessionsState.forEach((s) => {
+          if (s.status === 'connected') {
+            closeConversationView(s.id);
+          }
+        });
+      } else {
+        closeConversationView(sessionId);
+      }
+    });
+  });
+
+  // Real-Time Keystroke Mirroring on Message Input
+  document.querySelectorAll('.conv-input').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const sessionId = input.getAttribute('data-session');
+      if (sessionId === masterSessionId) {
+        const text = e.target.value;
+        // Mirror keystrokes to all slave inputs!
+        document.querySelectorAll('.conv-input').forEach(otherInput => {
+          if (otherInput !== input) {
+            otherInput.value = text;
+          }
+        });
+      }
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const sessionId = input.getAttribute('data-session');
+        handleSendMessage(sessionId);
+      }
+    });
+  });
+
+  // Send Button Click
+  document.querySelectorAll('.conv-send-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sessionId = btn.getAttribute('data-session');
+      handleSendMessage(sessionId);
+    });
+  });
+
+  // Standard Action Buttons
   document.querySelectorAll('.qr-action-btn').forEach(btn => {
     btn.addEventListener('click', () => openQRModal(btn.getAttribute('data-id')));
   });
@@ -202,7 +411,94 @@ function renderDeviceGrid() {
   });
 }
 
-// 6. QR Modal
+// 7. Conversation View Helper Functions
+function openConversationView(sessionId, contact) {
+  const state = instanceChatState.get(sessionId) || { activeContact: null, messages: [] };
+  state.activeContact = contact;
+  instanceChatState.set(sessionId, state);
+
+  const chatsView = document.getElementById(`chats-view-${sessionId}`);
+  const convView = document.getElementById(`conv-view-${sessionId}`);
+  const titleEl = document.getElementById(`conv-title-${sessionId}`);
+  const avatarEl = document.getElementById(`conv-avatar-${sessionId}`);
+
+  if (chatsView) chatsView.style.display = 'none';
+  if (convView) convView.classList.add('active');
+  if (titleEl) titleEl.textContent = contact.name;
+  if (avatarEl) avatarEl.textContent = contact.avatar;
+}
+
+function closeConversationView(sessionId) {
+  const state = instanceChatState.get(sessionId);
+  if (state) state.activeContact = null;
+
+  const chatsView = document.getElementById(`chats-view-${sessionId}`);
+  const convView = document.getElementById(`conv-view-${sessionId}`);
+
+  if (chatsView) chatsView.style.display = 'flex';
+  if (convView) convView.classList.remove('active');
+}
+
+// 8. Synchronized Message Dispatch Handler
+function handleSendMessage(sourceSessionId) {
+  const inputEl = document.getElementById(`input-${sourceSessionId}`);
+  if (!inputEl) return;
+  const text = inputEl.value.trim();
+  if (!text) return;
+
+  const isMaster = sourceSessionId === masterSessionId;
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (isMaster) {
+    logFeed(`🚀 MASTER FIRED MESSAGE: "${text}" -> Synchronizing across all devices!`);
+
+    // Add message bubble to ALL connected device screens!
+    sessionsState.forEach((s) => {
+      if (s.status === 'connected') {
+        appendMessageToScreen(s.id, text, 'outgoing', time);
+        const slaveInput = document.getElementById(`input-${s.id}`);
+        if (slaveInput) slaveInput.value = '';
+      }
+    });
+
+    // Also dispatch to actual WhatsApp recipient via backend!
+    const activeContact = instanceChatState.get(sourceSessionId)?.activeContact;
+    const targetPhone = activeContact ? activeContact.phone : targetRecipientInput.value.trim();
+
+    if (targetPhone) {
+      socket.emit('mirror_send', {
+        target: targetPhone,
+        message: text,
+        minDelay: 800,
+        maxDelay: 2000,
+        simulateTyping: true
+      });
+    }
+  } else {
+    // Send single from slave
+    appendMessageToScreen(sourceSessionId, text, 'outgoing', time);
+    inputEl.value = '';
+  }
+}
+
+function appendMessageToScreen(sessionId, text, type, time) {
+  const msgsContainer = document.getElementById(`conv-msgs-${sessionId}`);
+  const state = instanceChatState.get(sessionId);
+
+  if (state) {
+    state.messages.push({ text, type, time });
+  }
+
+  if (msgsContainer) {
+    const bubble = document.createElement('div');
+    bubble.className = `msg-bubble ${type}`;
+    bubble.innerHTML = `${text}<div class="msg-meta">${time} &#10003;&#10003;</div>`;
+    msgsContainer.appendChild(bubble);
+    msgsContainer.scrollTop = msgsContainer.scrollHeight;
+  }
+}
+
+// 9. QR Modal Handlers
 function openQRModal(sessionId) {
   currentQRModalId = sessionId;
   modalDeviceLabelEl.textContent = `Pairing: ${sessionId}`;
@@ -219,7 +515,7 @@ closePhoneModalBtn.addEventListener('click', () => {
   currentQRModalId = null;
 });
 
-// 7. Socket.io Handlers
+// 10. Socket.io Handlers
 socket.on('initial_state', ({ sessions }) => {
   sessionsState.clear();
   sessions.forEach(s => sessionsState.set(s.id, s));
@@ -233,7 +529,7 @@ socket.on('session_update', (session) => {
 
   if (currentQRModalId === session.id) {
     if (session.status === 'connected') {
-      logFeed(`Instance ${session.id} successfully paired.`);
+      logFeed(`🎉 Instance ${session.id} successfully paired.`);
       phoneDetailModalEl.classList.remove('show');
       currentQRModalId = null;
     } else if (session.qr) {
@@ -266,15 +562,6 @@ socket.on('action_started', (data) => {
 });
 
 socket.on('action_progress', (data) => {
-  const bubble = document.getElementById(`sim-bubble-${data.sessionId}`);
-  const bubbleText = document.getElementById(`sim-text-${data.sessionId}`);
-
-  if (bubble && bubbleText) {
-    bubbleText.textContent = data.status === 'success' ? 'Dispatched' : 'Failed';
-    bubble.classList.add('active');
-    setTimeout(() => bubble.classList.remove('active'), 3500);
-  }
-
   logFeed(`[${data.current}/${data.total}] Instance ${data.sessionId}: ${data.status}`);
 });
 
@@ -293,7 +580,7 @@ socket.on('operation_error', (data) => {
   fireReactBtn.disabled = false;
 });
 
-// 8. Add Buttons
+// 11. Add Buttons
 addSingleUnitBtn.addEventListener('click', () => {
   const num = sessionsState.size + 1;
   const id = `account_${String(num).padStart(2, '0')}`;
@@ -320,7 +607,7 @@ if (clearUnpairedBtn) {
   });
 }
 
-// 9. Console Tabs
+// 12. Console Tabs
 document.querySelectorAll('.nav-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -341,7 +628,7 @@ document.querySelectorAll('.react-btn').forEach(btn => {
   });
 });
 
-// Action Dispatches
+// Action Dispatches from Top Console
 fireBroadcastBtn.addEventListener('click', () => {
   const target = targetRecipientInput.value.trim();
   const message = broadcastMessageInput.value.trim();
@@ -360,6 +647,14 @@ fireBroadcastBtn.addEventListener('click', () => {
 
   fireBroadcastBtn.disabled = true;
   logFeed(`Firing synchronized broadcast...`);
+
+  // Mirror onto screen
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  sessionsState.forEach(s => {
+    if (s.status === 'connected') {
+      appendMessageToScreen(s.id, message, 'outgoing', time);
+    }
+  });
 
   socket.emit('mirror_send', {
     target,

@@ -17,6 +17,13 @@
   --accent-hover: #1d4ed8;
   --accent-subtle: rgba(37, 99, 235, 0.12);
 
+  --wa-green: #25d366;
+  --wa-teal: #128c7e;
+  --wa-dark-header: #1f2c34;
+  --wa-dark-bg: #0b141a;
+  --wa-outgoing-bubble: #005c4b;
+  --wa-incoming-bubble: #202c33;
+
   --status-online: #10b981;
   --status-standby: #f59e0b;
   --status-offline: #64748b;
@@ -37,9 +44,16 @@
   --text-secondary: #a1a1aa;
   --text-muted: #52525b;
 
-  --accent: #e4e4e7;
-  --accent-hover: #ffffff;
-  --accent-subtle: rgba(255, 255, 255, 0.08);
+  --accent: #38bdf8;
+  --accent-hover: #0284c7;
+  --accent-subtle: rgba(56, 189, 248, 0.12);
+
+  --wa-green: #22c55e;
+  --wa-teal: #0f766e;
+  --wa-dark-header: #18181b;
+  --wa-dark-bg: #09090b;
+  --wa-outgoing-bubble: #064e3b;
+  --wa-incoming-bubble: #27272a;
 
   --status-online: #22c55e;
   --status-standby: #eab308;
@@ -58,9 +72,16 @@
   --text-secondary: #a1a1aa;
   --text-muted: #71717a;
 
-  --accent: #3f3f46;
-  --accent-hover: #52525b;
-  --accent-subtle: rgba(255, 255, 255, 0.05);
+  --accent: #60a5fa;
+  --accent-hover: #3b82f6;
+  --accent-subtle: rgba(96, 165, 250, 0.12);
+
+  --wa-green: #25d366;
+  --wa-teal: #128c7e;
+  --wa-dark-header: #18181b;
+  --wa-dark-bg: #09090b;
+  --wa-outgoing-bubble: #005c4b;
+  --wa-incoming-bubble: #27272a;
 
   --status-online: #4ade80;
   --status-standby: #facc15;
@@ -79,9 +100,16 @@
   --text-secondary: #86efac;
   --text-muted: #4ade80;
 
-  --accent: #059669;
-  --accent-hover: #047857;
-  --accent-subtle: rgba(5, 150, 105, 0.15);
+  --accent: #10b981;
+  --accent-hover: #059669;
+  --accent-subtle: rgba(16, 185, 129, 0.15);
+
+  --wa-green: #10b981;
+  --wa-teal: #047857;
+  --wa-dark-header: #0d281e;
+  --wa-dark-bg: #05140e;
+  --wa-outgoing-bubble: #064e3b;
+  --wa-incoming-bubble: #16382b;
 
   --status-online: #10b981;
   --status-standby: #f59e0b;
@@ -118,7 +146,7 @@ body {
   padding: 0 20px;
   position: sticky;
   top: 0;
-  z-index: 40;
+  z-index: 50;
 }
 
 .nav-brand {
@@ -211,10 +239,6 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.theme-select-wrap {
-  position: relative;
 }
 
 .theme-select {
@@ -525,62 +549,115 @@ label {
   color: var(--text-muted);
 }
 
-.status-indicator {
+.sync-status-badge {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 4px;
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-/* High-Density Grid */
+.sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: pulseSync 1.5s infinite;
+}
+
+@keyframes pulseSync {
+  0% { transform: scale(0.9); opacity: 0.6; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.6; }
+}
+
+/* ========================================================
+   SMARTPHONE FLEET GRID (INTERACTIVE MOBILE FRAMES)
+   ======================================================== */
 .device-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 18px;
 }
 
-/* Device Instance Card */
+/* The Smartphone Unit Frame */
 .device-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  background: #020408;
+  border: 2px solid var(--border-subtle);
+  border-radius: 26px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6);
+  position: relative;
+  height: 380px;
 }
 
 .device-card:hover {
   border-color: var(--border-focus);
-  box-shadow: var(--shadow-md);
   transform: translateY(-2px);
 }
 
+/* Master Unit Special Treatment */
+.device-card.is-master {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px var(--accent-subtle), 0 10px 28px rgba(0, 0, 0, 0.8);
+}
+
+.device-card.is-master .device-card-header {
+  background: var(--accent-subtle);
+  border-bottom-color: var(--accent);
+}
+
+.device-card.is-master .master-indicator {
+  display: inline-flex;
+}
+
+/* Card Header (Phone Top Bar) */
 .device-card-header {
-  padding: 8px 10px;
+  padding: 6px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
   border-bottom: 1px solid var(--border-subtle);
+  z-index: 10;
 }
 
 .instance-label {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.master-indicator {
+  display: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #ffffff;
 }
 
 .instance-tag {
   font-family: 'JetBrains Mono', monospace;
   font-size: 8px;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -600,89 +677,296 @@ label {
   color: var(--status-offline);
 }
 
-/* Device Screen Simulation */
-.device-screen-sim {
-  background: var(--bg-app);
-  height: 180px;
-  padding: 12px 10px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+/* ========================================================
+   IN-PHONE WHATSAPP APP VIEW
+   ======================================================== */
+.phone-screen-viewport {
+  flex: 1;
+  background: var(--wa-dark-bg);
   position: relative;
-}
-
-.sim-number {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 32px;
-  font-weight: 800;
-  color: var(--text-muted);
-  opacity: 0.3;
-  line-height: 1;
-}
-
-.sim-telemetry {
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 3px;
 }
 
-.sim-model {
+/* Virtual Replicated Ghost Cursor */
+.ghost-cursor {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent), 0 0 2px #ffffff;
+  pointer-events: none;
+  z-index: 100;
+  transform: translate(-50%, -50%);
+  display: none;
+  transition: opacity 0.2s;
+}
+
+.ghost-cursor.visible {
+  display: block;
+}
+
+/* Phone System Status Bar (Clock, WiFi, Battery) */
+.phone-system-bar {
+  height: 16px;
+  padding: 0 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-family: 'JetBrains Mono', monospace;
   font-size: 9px;
   color: var(--text-muted);
+  background: var(--wa-dark-header);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.sim-user-id {
-  font-family: 'JetBrains Mono', monospace;
+/* WhatsApp Mobile App Header */
+.wa-app-header {
+  background: var(--wa-dark-header);
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.wa-app-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #e9edef;
+  letter-spacing: -0.2px;
+}
+
+.wa-header-actions {
+  display: flex;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+/* View A: Chat List View */
+.wa-chats-view {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.wa-chat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.wa-chat-item:hover, .wa-chat-item.active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.chat-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #374151;
+  color: #f3f4f6;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chat-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.chat-name-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-name {
   font-size: 10px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: #e9edef;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sim-bubble-layer {
-  min-height: 38px;
+.chat-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: var(--text-muted);
+}
+
+.chat-last-msg {
+  font-size: 9px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* View B: Active Conversation Screen */
+.wa-conversation-view {
+  flex: 1;
+  display: none;
+  flex-direction: column;
+  background: var(--wa-dark-bg);
+}
+
+.wa-conversation-view.active {
+  display: flex;
+}
+
+.conv-header {
+  padding: 4px 8px;
+  background: var(--wa-dark-header);
   display: flex;
   align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.sim-chat-bubble {
-  background: #005c4b;
-  color: #ffffff;
+.conv-back-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.conv-contact-name {
+  font-size: 10px;
+  font-weight: 600;
+  color: #e9edef;
+  flex: 1;
+}
+
+.conv-messages-scroll {
+  flex: 1;
+  padding: 8px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.msg-bubble {
   font-size: 9px;
-  padding: 5px 7px;
-  border-radius: 6px 6px 0 6px;
-  margin-left: auto;
-  max-width: 95%;
-  display: none;
+  line-height: 1.35;
+  padding: 5px 8px;
+  border-radius: 6px;
+  max-width: 85%;
+  position: relative;
+  word-break: break-word;
 }
 
-.sim-chat-bubble.active {
-  display: block;
-  animation: popIn 0.2s ease;
+.msg-bubble.outgoing {
+  background: var(--wa-outgoing-bubble);
+  color: #e9edef;
+  align-self: flex-end;
+  border-bottom-right-radius: 2px;
 }
 
-.bubble-time-ticks {
-  font-size: 8px;
-  color: #6ee7b7;
+.msg-bubble.incoming {
+  background: var(--wa-incoming-bubble);
+  color: #e9edef;
+  align-self: flex-start;
+  border-bottom-left-radius: 2px;
+}
+
+.msg-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 7px;
+  color: rgba(255, 255, 255, 0.6);
   text-align: right;
   margin-top: 2px;
 }
 
-@keyframes popIn {
-  from { opacity: 0; transform: scale(0.85); }
-  to { opacity: 1; transform: scale(1); }
+.conv-input-bar {
+  padding: 4px 6px;
+  background: var(--wa-dark-header);
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
-/* Device Footer Actions */
+.conv-input {
+  flex: 1;
+  background: #2a3942;
+  border: none;
+  border-radius: 12px;
+  color: #e9edef;
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.conv-send-btn {
+  background: var(--wa-green);
+  border: none;
+  color: #ffffff;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+/* Unpaired Empty Screen */
+.phone-unpaired-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+  background: #05080e;
+}
+
+.unpaired-icon {
+  font-size: 28px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.unpaired-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.unpaired-subtitle {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+/* Card Bottom Controls */
 .device-card-footer {
-  padding: 8px 10px;
+  padding: 6px 10px;
   display: flex;
   gap: 6px;
   border-top: 1px solid var(--border-subtle);
-  background: rgba(255, 255, 255, 0.01);
+  background: rgba(255, 255, 255, 0.02);
+  z-index: 10;
 }
 
 .btn-card {
@@ -692,8 +976,8 @@ label {
   color: var(--text-secondary);
   font-size: 10px;
   font-weight: 500;
-  padding: 5px 8px;
-  border-radius: 5px;
+  padding: 4px 6px;
+  border-radius: 4px;
   cursor: pointer;
   text-align: center;
   transition: all 0.15s;
@@ -704,9 +988,14 @@ label {
   color: var(--text-primary);
 }
 
-.btn-card.highlight {
+.btn-card.btn-master {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.btn-card.btn-master.is-active {
+  background: var(--accent);
+  color: #ffffff;
 }
 
 .btn-card.danger:hover {
