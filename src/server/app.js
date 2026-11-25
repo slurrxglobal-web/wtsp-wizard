@@ -6,6 +6,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { SessionManager } from '../core/SessionManager.js';
 import { ActionDispatcher } from '../core/ActionDispatcher.js';
 import { AdbFleetBridge } from '../core/AdbFleetBridge.js';
+import { PuppeteerFleet } from '../core/PuppeteerFleet.js';
 import { setupSocketHandlers } from './socket.js';
 
 const app = express();
@@ -26,15 +27,61 @@ app.use(express.json());
 app.use(express.static(publicDir));
 
 // Initialize Core Managers
-const sessionManager = new SessionManager();
+const sessionManager = new SessionManager();      // Baileys — fast broadcast
 const actionDispatcher = new ActionDispatcher(sessionManager);
-const adbBridge = new AdbFleetBridge();
+const adbBridge = new AdbFleetBridge();           // BlueStacks ADB
+const puppeteerFleet = new PuppeteerFleet();      // Real WhatsApp Web sessions
 
 // Setup Socket.io real-time layer
-setupSocketHandlers(io, sessionManager, actionDispatcher, adbBridge);
+setupSocketHandlers(io, sessionManager, actionDispatcher, adbBridge, puppeteerFleet);
 
 // Start background ADB auto-polling for BlueStacks / Cloud Phones
 adbBridge.startAutoPoll(4000);
+
+// ── Puppeteer REST API ──────────────────────────────────────────────────────
+
+// Get all real WhatsApp Web sessions
+app.get('/api/puppet/sessions', (req, res) => {
+  res.json({ success: true, sessions: puppeteerFleet.getAllSessions() });
+});
+
+// Create a new real WhatsApp Web session
+app.post('/api/puppet/sessions', async (req, res) => {
+  const { id, label } = req.body;
+  if (!id) return res.status(400).json({ error: 'id is required' });
+  try {
+    const session = await puppeteerFleet.createSession(id, label);
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Close a Puppeteer session
+app.delete('/api/puppet/sessions/:id', async (req, res) => {
+  try {
+    await puppeteerFleet.closeSession(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Set master session
+app.post('/api/puppet/master', (req, res) => {
+  const { id } = req.body;
+  puppeteerFleet.setMaster(id);
+  res.json({ success: true, master: id });
+});
+
+// Mirror click (xPct, yPct as 0-100)
+app.post('/api/puppet/click', async (req, res) => {
+  const { masterId, xPct, yPct } = req.body;
+  await puppeteerFleet.mirrorClick(masterId || puppeteerFleet.getMaster(), xPct, yPct);
+  res.json({ success: true });
+});
+
+// ── ADB REST API ────────────────────────────────────────────────────────────
 
 // REST API Endpoints
 app.get('/api/adb/devices', (req, res) => {

@@ -1,18 +1,19 @@
-// Studio Socket.io Client & Hybrid Dual-Engine Mirror Controller
+// Studio Socket.io Client — Hybrid Fleet Controller
+// Baileys: fast broadcast | Puppeteer: real WhatsApp Web | ADB: BlueStacks
 const socket = io();
 
-// State
-let sessionsState = new Map();
-let adbDevicesState = []; // Array of { serial, model, resolution, status, type: 'android' }
+// ── State ────────────────────────────────────────────────────────────────────
+let sessionsState    = new Map(); // Baileys sessions
+let puppetSessions   = new Map(); // Real WhatsApp Web (Puppeteer) sessions
+let adbDevicesState  = [];
 let currentQRModalId = null;
-let masterSessionId = null;
-let currentFleetFilter = 'all'; // 'all', 'android', 'web'
-let selectedEmoji = '❤️';
+let masterSessionId  = null;      // Can be baileys id, puppet id, or adb serial
+let currentFleetFilter = 'all';   // 'all' | 'android' | 'web' | 'puppet'
 
-// Real WhatsApp Chat and Message Stores synced from Baileys
-const realChatsState = new Map(); // sessionId -> Array of real chats [{ id, name, lastMsg, time, unread }]
-const realMessagesState = new Map(); // sessionId -> Object { jid: Array of messages }
-const instanceChatState = new Map(); // sessionId -> { activeContact: null, messages: [] }
+// Baileys real data
+const realChatsState    = new Map();
+const realMessagesState = new Map();
+const instanceChatState = new Map();
 
 function getAvatarInitials(name) {
   if (!name) return 'WA';
@@ -39,53 +40,49 @@ function getSessionChats(sessionId) {
 }
 
 // DOM Elements
-const totalUnitsCountEl = document.getElementById('totalUnitsCount');
+const totalUnitsCountEl  = document.getElementById('totalUnitsCount');
 const activeUnitsCountEl = document.getElementById('activeUnitsCount');
 const activeFilterCountEl = document.getElementById('activeFilterCount');
-const fleetStatusTextEl = document.getElementById('fleetStatusText');
-const phoneFarmGridEl = document.getElementById('phoneFarmGrid');
-const feedStreamEl = document.getElementById('feedStream');
-const themeSelectorEl = document.getElementById('themeSelector');
+const fleetStatusTextEl  = document.getElementById('fleetStatusText');
+const phoneFarmGridEl    = document.getElementById('phoneFarmGrid');
+const feedStreamEl       = document.getElementById('feedStream');
+const themeSelectorEl    = document.getElementById('themeSelector');
 
-// Filters & ADB Buttons
-const countAllEl = document.getElementById('countAll');
+const countAllEl    = document.getElementById('countAll');
 const countAndroidEl = document.getElementById('countAndroid');
-const countWebEl = document.getElementById('countWeb');
-const scanAdbBtn = document.getElementById('scanAdbBtn');
-const adbBackBtn = document.getElementById('adbBackBtn');
-const adbHomeBtn = document.getElementById('adbHomeBtn');
-const adbEnterBtn = document.getElementById('adbEnterBtn');
+const countWebEl    = document.getElementById('countWeb');
+const countPuppetEl = document.getElementById('countPuppet');
+const scanAdbBtn    = document.getElementById('scanAdbBtn');
+const adbBackBtn    = document.getElementById('adbBackBtn');
+const adbHomeBtn    = document.getElementById('adbHomeBtn');
+const adbEnterBtn   = document.getElementById('adbEnterBtn');
+const addRealWABtn  = document.getElementById('addRealWABtn');
 
-// Console Drawer Elements
-const commandConsoleEl = document.getElementById('commandConsole');
-const toggleConsoleBtn = document.getElementById('toggleConsoleBtn');
+const commandConsoleEl  = document.getElementById('commandConsole');
+const toggleConsoleBtn  = document.getElementById('toggleConsoleBtn');
 const collapseConsoleBtn = document.getElementById('collapseConsoleBtn');
 
-// Action Inputs & Buttons
 const targetRecipientInput = document.getElementById('targetRecipient');
 const broadcastMessageInput = document.getElementById('broadcastMessage');
 const minJitterInput = document.getElementById('minJitter');
 const maxJitterInput = document.getElementById('maxJitter');
 const humanTypingCheck = document.getElementById('humanTypingCheck');
 
-const fireBroadcastBtn = document.getElementById('fireBroadcastBtn');
-const addSingleUnitBtn = document.getElementById('addSingleUnitBtn');
-const addBatchUnitsBtn = document.getElementById('addBatchUnitsBtn');
-const clearUnpairedBtn = document.getElementById('clearUnpairedBtn');
+const fireBroadcastBtn  = document.getElementById('fireBroadcastBtn');
+const addSingleUnitBtn  = document.getElementById('addSingleUnitBtn');
+const addBatchUnitsBtn  = document.getElementById('addBatchUnitsBtn');
+const clearUnpairedBtn  = document.getElementById('clearUnpairedBtn');
 
-// Modal Elements
 const phoneDetailModalEl = document.getElementById('phoneDetailModal');
 const modalDeviceLabelEl = document.getElementById('modalDeviceLabel');
-const modalQRImgEl = document.getElementById('modalQRImg');
+const modalQRImgEl       = document.getElementById('modalQRImg');
 const closePhoneModalBtn = document.getElementById('closePhoneModalBtn');
 
 // 1. Theme Engine
 function initTheme() {
   const savedTheme = localStorage.getItem('wtsp_wizard_theme') || 'midnight';
   document.documentElement.setAttribute('data-theme', savedTheme);
-  if (themeSelectorEl) {
-    themeSelectorEl.value = savedTheme;
-  }
+  if (themeSelectorEl) themeSelectorEl.value = savedTheme;
 }
 
 themeSelectorEl.addEventListener('change', (e) => {
@@ -103,11 +100,10 @@ function logFeed(msg) {
   feedStreamEl.textContent = `[${time}] ${msg}`;
 }
 
-// 3. Console Toggle & Keyboard Shortcut
+// 3. Console Toggle
 function toggleConsole() {
   commandConsoleEl.classList.toggle('collapsed');
 }
-
 toggleConsoleBtn.addEventListener('click', toggleConsole);
 collapseConsoleBtn.addEventListener('click', toggleConsole);
 
@@ -124,78 +120,141 @@ function getNumericId(id, fallbackIndex) {
   return digits ? digits.padStart(2, '0') : String(fallbackIndex + 1).padStart(2, '0');
 }
 
-// 5. Render Hybrid Fleet Grid (Android BlueStacks + Web WhatsApp)
+// ── 5. Render Fleet Grid ────────────────────────────────────────────────────
 function renderDeviceGrid() {
-  const webSessions = Array.from(sessionsState.values());
+  const webSessions   = Array.from(sessionsState.values());
+  const puppetList    = Array.from(puppetSessions.values());
   const androidDevices = adbDevicesState;
 
-  const totalCount = webSessions.length + androidDevices.length;
+  const totalCount   = webSessions.length + puppetList.length + androidDevices.length;
   const connectedWeb = webSessions.filter(s => s.status === 'connected').length;
-  const connectedAndroid = androidDevices.length;
-  const totalOnline = connectedWeb + connectedAndroid;
+  const connectedPuppet = puppetList.filter(s => s.status === 'connected').length;
+  const totalOnline  = connectedWeb + connectedPuppet + androidDevices.length;
 
-  totalUnitsCountEl.textContent = totalCount;
+  totalUnitsCountEl.textContent  = totalCount;
   activeUnitsCountEl.textContent = totalOnline;
 
-  if (countAllEl) countAllEl.textContent = totalCount;
+  if (countAllEl)    countAllEl.textContent    = totalCount;
   if (countAndroidEl) countAndroidEl.textContent = androidDevices.length;
-  if (countWebEl) countWebEl.textContent = webSessions.length;
+  if (countWebEl)    countWebEl.textContent    = webSessions.length;
+  if (countPuppetEl) countPuppetEl.textContent = puppetList.length;
 
-  activeFilterCountEl.textContent = `${totalOnline} / ${totalCount} online (${currentFleetFilter.toUpperCase()})`;
+  activeFilterCountEl.textContent = `${totalOnline} / ${totalCount} online`;
 
-  // Auto-elect Master
+  // Auto-elect master
   if (!masterSessionId && totalOnline > 0) {
-    if (androidDevices.length > 0) {
-      masterSessionId = androidDevices[0].serial;
-    } else {
-      const firstConnectedWeb = webSessions.find(s => s.status === 'connected');
-      if (firstConnectedWeb) masterSessionId = firstConnectedWeb.id;
+    const firstPuppet = puppetList.find(s => s.status === 'connected');
+    if (firstPuppet) masterSessionId = firstPuppet.id;
+    else if (androidDevices.length > 0) masterSessionId = androidDevices[0].serial;
+    else {
+      const firstWeb = webSessions.find(s => s.status === 'connected');
+      if (firstWeb) masterSessionId = firstWeb.id;
     }
   }
 
-  if (totalOnline > 0) {
-    fleetStatusTextEl.innerHTML = `
-      <div class="sync-status-badge">
-        <span class="sync-dot"></span>
-        <span>SYNC ACTIVE // MASTER: ${masterSessionId ? masterSessionId.toUpperCase() : 'NONE'}</span>
-      </div>
-    `;
-  } else {
-    fleetStatusTextEl.innerHTML = `<span class="status-indicator">STANDBY</span>`;
-  }
+  fleetStatusTextEl.innerHTML = totalOnline > 0
+    ? `<div class="sync-status-badge"><span class="sync-dot"></span><span>SYNC ACTIVE // MASTER: ${(masterSessionId || 'NONE').toUpperCase()}</span></div>`
+    : `<span class="status-indicator">STANDBY</span>`;
 
-  // Filter units
+  // Filter
   let displayUnits = [];
   if (currentFleetFilter === 'all') {
     displayUnits = [
-      ...androidDevices.map(d => ({ ...d, isAndroid: true })),
-      ...webSessions.map(s => ({ ...s, isAndroid: false }))
+      ...puppetList.map(s  => ({ ...s,  unitType: 'puppet'  })),
+      ...androidDevices.map(d => ({ ...d, unitType: 'android' })),
+      ...webSessions.map(s  => ({ ...s,  unitType: 'web'    }))
     ];
+  } else if (currentFleetFilter === 'puppet') {
+    displayUnits = puppetList.map(s => ({ ...s, unitType: 'puppet' }));
   } else if (currentFleetFilter === 'android') {
-    displayUnits = androidDevices.map(d => ({ ...d, isAndroid: true }));
+    displayUnits = androidDevices.map(d => ({ ...d, unitType: 'android' }));
   } else {
-    displayUnits = webSessions.map(s => ({ ...s, isAndroid: false }));
+    displayUnits = webSessions.map(s => ({ ...s, unitType: 'web' }));
   }
 
   if (displayUnits.length === 0) {
     phoneFarmGridEl.innerHTML = `
-      <div style="grid-column: 1/-1; text-align: center; padding: 48px 16px; color: var(--text-muted);">
-        <p style="font-weight: 500;">No devices found in current filter [${currentFleetFilter.toUpperCase()}].</p>
-        <p style="font-size: 11px; margin-top: 4px;">Start BlueStacks or click <strong>+ Add Device</strong> to spawn instances.</p>
-      </div>
-    `;
+      <div style="grid-column:1/-1;text-align:center;padding:48px 16px;color:var(--text-muted);">
+        <p style="font-weight:500;">No instances in [${currentFleetFilter.toUpperCase()}] filter.</p>
+        <p style="font-size:11px;margin-top:4px;">Click <strong>+ Real WA</strong> to open a real WhatsApp Web session.</p>
+      </div>`;
     return;
   }
 
   phoneFarmGridEl.innerHTML = '';
   displayUnits.forEach((unit, index) => {
-    const isMaster = unit.isAndroid ? (unit.serial === masterSessionId) : (unit.id === masterSessionId);
+    if (unit.unitType === 'puppet') {
+      renderPuppetCard(unit, index);
+    } else if (unit.unitType === 'android') {
+      renderAndroidCard(unit, index);
+    } else {
+      renderWebCard(unit, index);
+    }
+  });
 
-    if (unit.isAndroid) {
-      // Render Android BlueStacks / Cloud Phone Frame
-      const card = document.createElement('div');
-      card.className = `device-card ${isMaster ? 'is-master' : ''}`;
-      card.id = `device-card-${unit.serial}`;
+  attachInteractiveEvents();
+}
+
+// ── Puppeteer Card (Real WhatsApp Web) ───────────────────────────────────────
+function renderPuppetCard(unit, index) {
+  const isMaster = unit.id === masterSessionId;
+  const card = document.createElement('div');
+  card.className = `device-card ${isMaster ? 'is-master' : ''}`;
+  card.id = `device-card-${unit.id}`;
+
+  const statusLabel = unit.status === 'connected' ? 'Online'
+    : unit.status === 'qr_ready' ? 'Scan QR'
+    : unit.status === 'loading'  ? 'Loading...'
+    : 'Offline';
+  const statusTag = unit.status === 'connected' ? 'online'
+    : unit.status === 'qr_ready' ? 'standby' : 'offline';
+
+  card.innerHTML = `
+    <div class="device-card-header">
+      <div class="instance-label">
+        <span>${unit.label || unit.id}</span>
+        <span class="master-indicator">MASTER</span>
+      </div>
+      <span class="instance-tag tag-puppet">${statusLabel}</span>
+    </div>
+
+    <div class="phone-screen-viewport puppet-viewport" id="viewport-${unit.id}" data-puppet-id="${unit.id}">
+      <div class="ghost-cursor" id="cursor-${unit.id}"></div>
+      <img
+        id="puppet-screen-${unit.id}"
+        class="puppet-live-screen"
+        src=""
+        alt="WhatsApp Web Live"
+        style="display:none;"
+      >
+      <div class="puppet-placeholder" id="puppet-placeholder-${unit.id}">
+        <div class="unpaired-icon" style="font-size:22px;">🌐</div>
+        <div class="unpaired-title">Real WhatsApp Web</div>
+        <div class="unpaired-subtitle">${
+          unit.status === 'loading'  ? 'Opening Chrome...' :
+          unit.status === 'qr_ready' ? 'Scan QR on your phone' :
+          unit.status === 'connected' ? 'Connected — loading screen...' :
+          'Starting session'
+        }</div>
+      </div>
+    </div>
+
+    <div class="device-card-footer">
+      <button class="btn-card btn-master ${isMaster ? 'is-active' : ''} puppet-master-btn" data-id="${unit.id}">
+        ${isMaster ? '★ Master' : 'Set Master'}
+      </button>
+      <button class="btn-card danger puppet-close-btn" data-id="${unit.id}" title="Close session">&times;</button>
+    </div>
+  `;
+  phoneFarmGridEl.appendChild(card);
+}
+
+// ── Android Card (BlueStacks ADB) ────────────────────────────────────────────
+function renderAndroidCard(unit, index) {
+  const isMaster = unit.serial === masterSessionId;
+  const card = document.createElement('div');
+  card.className = `device-card ${isMaster ? 'is-master' : ''}`;
+  card.id = `device-card-${unit.serial}`;
 
       card.innerHTML = `
         <div class="device-card-header">
@@ -245,19 +304,20 @@ function renderDeviceGrid() {
           <button class="btn-card adb-click-key" data-key="3" data-serial="${unit.serial}">Home</button>
         </div>
       `;
-      phoneFarmGridEl.appendChild(card);
-    } else {
-      // Render Web WhatsApp Session Frame
-      const numId = getNumericId(unit.id, index);
-      const isConnected = unit.status === 'connected';
-      const isQrReady = unit.status === 'qr_ready';
+  phoneFarmGridEl.appendChild(card);
+}
+
+// ── Baileys Web Card ──────────────────────────────────────────────────────────
+function renderWebCard(unit, index) {
+  const isMaster = unit.id === masterSessionId;
+  const numId = getNumericId(unit.id, index);
+  const isConnected = unit.status === 'connected';
+  const isQrReady   = unit.status === 'qr_ready';
 
       if (!instanceChatState.has(unit.id)) {
         instanceChatState.set(unit.id, {
           activeContact: null,
-          messages: [
-            { text: 'Session ready.', type: 'incoming', time: '10:30' }
-          ]
+          messages: [{ text: 'Session ready.', type: 'incoming', time: '10:30' }]
         });
       }
 
@@ -266,8 +326,8 @@ function renderDeviceGrid() {
       card.className = `device-card ${isMaster ? 'is-master' : ''}`;
       card.id = `device-card-${unit.id}`;
 
-      const statusTag = isConnected ? 'online' : isQrReady ? 'standby' : 'offline';
-      const statusLabel = isConnected ? 'Online' : isQrReady ? 'Ready' : 'Offline';
+      const statusTag   = isConnected ? 'online' : isQrReady ? 'standby' : 'offline';
+      const statusLabel = isConnected ? 'Online'  : isQrReady ? 'Ready'   : 'Offline';
 
       card.innerHTML = `
         <div class="device-card-header">
@@ -295,18 +355,10 @@ function renderDeviceGrid() {
               </div>
             </div>
 
-            <!-- View A: Chats List View -->
-            <div class="wa-chats-view ${state.activeContact ? 'hidden' : ''}" id="chats-view-${unit.id}" style="${state.activeContact ? 'display: none;' : ''}">
+            <div class="wa-chats-view" id="chats-view-${unit.id}" style="${state.activeContact ? 'display:none;' : ''}">
               ${(() => {
                 const chats = getSessionChats(unit.id);
-                if (chats.length === 0) {
-                  return `
-                    <div style="padding: 30px 12px; text-align: center; color: var(--text-muted); font-size: 10px;">
-                      <p style="font-weight: 500; color: var(--text-secondary);">Syncing Real WhatsApp Chats...</p>
-                      <p style="margin-top: 4px; font-size: 8px;">Recent chats appear automatically.</p>
-                    </div>
-                  `;
-                }
+                if (chats.length === 0) return `<div style="padding:30px 12px;text-align:center;color:var(--text-muted);font-size:10px;"><p style="font-weight:500;color:var(--text-secondary);">Syncing Real WhatsApp Chats...</p></div>`;
                 return chats.map((c, cIdx) => `
                   <div class="wa-chat-item ${state.activeContact?.id === c.id ? 'active' : ''}" data-session="${unit.id}" data-contact-idx="${cIdx}">
                     <div class="chat-avatar">${c.avatar}</div>
@@ -317,32 +369,23 @@ function renderDeviceGrid() {
                       </div>
                       <div class="chat-last-msg">${c.lastMsg || 'Tap to open chat'}</div>
                     </div>
-                  </div>
-                `).join('');
+                  </div>`).join('');
               })()}
             </div>
 
-            <!-- View B: Conversation Screen -->
             <div class="wa-conversation-view ${state.activeContact ? 'active' : ''}" id="conv-view-${unit.id}">
               <div class="conv-header">
                 <button class="conv-back-btn" data-session="${unit.id}">&lsaquo;</button>
-                <div class="chat-avatar" style="width: 20px; height: 20px; font-size: 9px;" id="conv-avatar-${unit.id}">
+                <div class="chat-avatar" style="width:20px;height:20px;font-size:9px;" id="conv-avatar-${unit.id}">
                   ${state.activeContact ? state.activeContact.avatar : 'WA'}
                 </div>
                 <span class="conv-contact-name" id="conv-title-${unit.id}">
                   ${state.activeContact ? state.activeContact.name : 'Select Chat'}
                 </span>
               </div>
-
               <div class="conv-messages-scroll" id="conv-msgs-${unit.id}">
-                ${state.messages.map(m => `
-                  <div class="msg-bubble ${m.type}">
-                    ${m.text}
-                    <div class="msg-meta">${m.time} &#10003;&#10003;</div>
-                  </div>
-                `).join('')}
+                ${state.messages.map(m => `<div class="msg-bubble ${m.type}">${m.text}<div class="msg-meta">${m.time} &#10003;&#10003;</div></div>`).join('')}
               </div>
-
               <div class="conv-input-bar">
                 <input type="text" class="conv-input" id="input-${unit.id}" placeholder="Type a message..." data-session="${unit.id}">
                 <button class="conv-send-btn" id="send-${unit.id}" data-session="${unit.id}">&#10148;</button>
@@ -352,46 +395,94 @@ function renderDeviceGrid() {
             <div class="phone-unpaired-screen">
               <div class="unpaired-icon">💬</div>
               <div class="unpaired-title">WhatsApp Unpaired</div>
-              <div class="unpaired-subtitle">Scan QR code to activate this phone instance</div>
-              ${isQrReady ? `
-                <button class="btn btn-primary qr-action-btn" data-id="${unit.id}" style="font-size: 11px;">
-                  Pair QR Code
-                </button>
-              ` : `
-                <button class="btn btn-secondary reconnect-action-btn" data-id="${unit.id}" style="font-size: 11px;">
-                  Connect Instance
-                </button>
-              `}
+              <div class="unpaired-subtitle">Scan QR code to activate</div>
+              ${isQrReady
+                ? `<button class="btn btn-primary qr-action-btn" data-id="${unit.id}" style="font-size:11px;">Pair QR Code</button>`
+                : `<button class="btn btn-secondary reconnect-action-btn" data-id="${unit.id}" style="font-size:11px;">Connect Instance</button>`}
             </div>
           `}
         </div>
 
         <div class="device-card-footer">
-          ${isConnected ? `
-            <button class="btn-card btn-master ${isMaster ? 'is-active' : ''} master-toggle-btn" data-id="${unit.id}">
-              ${isMaster ? '★ Master' : 'Set Master'}
-            </button>
-          ` : isQrReady ? `
-            <button class="btn-card highlight qr-action-btn" data-id="${unit.id}">Pair QR</button>
-          ` : `
-            <button class="btn-card reconnect-action-btn" data-id="${unit.id}">Connect</button>
-          `}
+          ${isConnected
+            ? `<button class="btn-card btn-master ${isMaster ? 'is-active' : ''} master-toggle-btn" data-id="${unit.id}">${isMaster ? '★ Master' : 'Set Master'}</button>`
+            : isQrReady
+              ? `<button class="btn-card highlight qr-action-btn" data-id="${unit.id}">Pair QR</button>`
+              : `<button class="btn-card reconnect-action-btn" data-id="${unit.id}">Connect</button>`}
           <button class="btn-card danger delete-action-btn" data-id="${unit.id}" title="Remove Instance">&times;</button>
         </div>
       `;
-      phoneFarmGridEl.appendChild(card);
-    }
-  });
-
-  attachInteractiveEvents();
+  phoneFarmGridEl.appendChild(card);
 }
 
-// 6. Interactive Event Mirroring
+// ── 6. Interactive Event Attachment ──────────────────────────────────────────
 function attachInteractiveEvents() {
-  // Master selection toggle
-  document.querySelectorAll('.master-toggle-btn').forEach(btn => {
+  // Puppeteer master toggle
+  document.querySelectorAll('.puppet-master-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      masterSessionId = btn.getAttribute('data-id');
+      socket.emit('puppet_set_master', { id: masterSessionId });
+      logFeed(`Master set to: ${masterSessionId}`);
+      renderDeviceGrid();
+    });
+  });
+
+  // Puppeteer close
+  document.querySelectorAll('.puppet-close-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-id');
+      if (confirm(`Close Real WhatsApp session "${id}"?`)) {
+        socket.emit('puppet_close', { id });
+        logFeed(`Closing puppet session: ${id}`);
+      }
+    });
+  });
+
+  // Puppeteer viewport: click = mirror tap
+  document.querySelectorAll('.puppet-viewport').forEach(vp => {
+    const puppetId = vp.getAttribute('data-puppet-id');
+    vp.addEventListener('click', (e) => {
+      const rect = vp.getBoundingClientRect();
+      const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+      const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top)  / rect.height) * 100));
+      socket.emit('puppet_click', { masterId: puppetId, xPct, yPct });
+      logFeed(`Mirrored click at (${Math.round(xPct)}%, ${Math.round(yPct)}%) across all WhatsApp Web sessions`);
+    });
+
+    // Scroll mirror
+    vp.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const rect = vp.getBoundingClientRect();
+      const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+      const yPct = ((e.clientY - rect.top)  / rect.height) * 100;
+      socket.emit('puppet_scroll', { masterId: puppetId, xPct, yPct, deltaY: e.deltaY });
+    }, { passive: false });
+  });
+
+  // Ghost cursor mirroring for puppet frames
+  if (masterSessionId && puppetSessions.has(masterSessionId)) {
+    const masterVp = document.getElementById(`viewport-${masterSessionId}`);
+    if (masterVp) {
+      masterVp.addEventListener('mousemove', (e) => {
+        const rect = masterVp.getBoundingClientRect();
+        const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+        const yPct = ((e.clientY - rect.top)  / rect.height) * 100;
+        document.querySelectorAll('.ghost-cursor').forEach(cursor => {
+          const card = cursor.closest('.device-card');
+          if (card && card.id !== `device-card-${masterSessionId}`) {
+            cursor.style.left = `${xPct}%`;
+            cursor.style.top  = `${yPct}%`;
+            cursor.classList.add('visible');
+          }
+        });
+      });
+      masterVp.addEventListener('mouseleave', () => {
+        document.querySelectorAll('.ghost-cursor').forEach(c => c.classList.remove('visible'));
+      });
+    }
+  }
+
+  // Baileys master toggle
       masterSessionId = id;
       logFeed(`⭐ DESIGNATED MASTER CONTROLLER: ${id.toUpperCase()}`);
       renderDeviceGrid();
@@ -725,9 +816,15 @@ if (adbEnterBtn) {
 }
 
 // 11. Socket.io Handlers
-socket.on('initial_state', ({ sessions, chats, messages, adbDevices }) => {
+socket.on('initial_state', ({ sessions, chats, messages, adbDevices, puppetSessions: initialPuppet }) => {
   sessionsState.clear();
   sessions.forEach(s => sessionsState.set(s.id, s));
+
+  puppetSessions.clear();
+  if (initialPuppet) {
+    initialPuppet.forEach(p => puppetSessions.set(p.id, p));
+  }
+
   if (chats) {
     for (const [id, chatList] of Object.entries(chats)) {
       realChatsState.set(id, chatList);
@@ -744,7 +841,30 @@ socket.on('initial_state', ({ sessions, chats, messages, adbDevices }) => {
     adbDevices.forEach(dev => startScreenPoll(dev.serial));
   }
   renderDeviceGrid();
-  logFeed(`Loaded ${sessions.length} Web instances and ${adbDevicesState.length} Android devices.`);
+  logFeed(`Loaded ${sessions.length} Baileys, ${puppetSessions.size} Real WA, and ${adbDevicesState.length} Android devices.`);
+});
+
+// Puppeteer Real WhatsApp Web Socket Listeners
+socket.on('puppet_screenshot', ({ id, screenshot }) => {
+  const img = document.getElementById(`puppet-screen-${id}`);
+  const placeholder = document.getElementById(`puppet-placeholder-${id}`);
+  if (img) {
+    img.src = screenshot;
+    img.style.display = 'block';
+    if (placeholder) placeholder.style.display = 'none';
+  }
+});
+
+socket.on('puppet_session_update', (session) => {
+  puppetSessions.set(session.id, session);
+  renderDeviceGrid();
+  logFeed(`Real WhatsApp session [${session.id}] status: ${session.status.toUpperCase()}`);
+});
+
+socket.on('puppet_session_removed', (id) => {
+  puppetSessions.delete(id);
+  renderDeviceGrid();
+  logFeed(`Real WhatsApp session [${id}] removed.`);
 });
 
 socket.on('adb_devices_update', (devices) => {
@@ -859,6 +979,15 @@ socket.on('operation_error', (data) => {
 });
 
 // 12. Add Buttons
+if (addRealWABtn) {
+  addRealWABtn.addEventListener('click', () => {
+    const num = puppetSessions.size + 1;
+    const id = `puppet_${String(num).padStart(2, '0')}`;
+    socket.emit('puppet_create', { id, label: `Real WA ${num}` });
+    logFeed(`🚀 Launching real WhatsApp Web browser instance [${id}]...`);
+  });
+}
+
 addSingleUnitBtn.addEventListener('click', () => {
   const num = sessionsState.size + 1;
   const id = `account_${String(num).padStart(2, '0')}`;
@@ -885,6 +1014,19 @@ if (clearUnpairedBtn) {
   });
 }
 
+// Global Key Listener for Real WhatsApp Web (Master Typing Mirror)
+window.addEventListener('keydown', (e) => {
+  if (!masterSessionId || !puppetSessions.has(masterSessionId)) return;
+  // If user is typing in an input element in console, do not intercept
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  if (e.key.length === 1) {
+    socket.emit('puppet_type', { masterId: masterSessionId, text: e.key });
+  } else if (['Enter', 'Backspace', 'Escape', 'ArrowDown', 'ArrowUp', 'Tab'].includes(e.key)) {
+    socket.emit('puppet_key', { masterId: masterSessionId, key: e.key });
+  }
+});
+
 // Action Dispatches from Top Console (Unified)
 fireBroadcastBtn.addEventListener('click', () => {
   const target = targetRecipientInput.value.trim();
@@ -893,7 +1035,7 @@ fireBroadcastBtn.addEventListener('click', () => {
   const maxDelay = parseFloat(maxJitterInput.value) * 1000 || 2500;
   const simulateTyping = humanTypingCheck.checked;
 
-  if (!target && adbDevicesState.length === 0) {
+  if (!target && adbDevicesState.length === 0 && puppetSessions.size === 0) {
     alert('Please enter a target recipient phone number or group JID');
     return;
   }
@@ -903,7 +1045,7 @@ fireBroadcastBtn.addEventListener('click', () => {
   }
 
   fireBroadcastBtn.disabled = true;
-  logFeed(`Firing synchronized broadcast to Web & Android fleets...`);
+  logFeed(`Firing synchronized broadcast to Web, Android & Real WhatsApp fleets...`);
 
   // Web screens animation
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -919,6 +1061,14 @@ fireBroadcastBtn.addEventListener('click', () => {
     setTimeout(() => socket.emit('adb_key', { keyCode: 66 }), 400);
   }
 
+  // Real WhatsApp Web (Puppeteer) text input & enter
+  if (puppetSessions.size > 0) {
+    socket.emit('puppet_type', { masterId: masterSessionId, text: message });
+    setTimeout(() => {
+      socket.emit('puppet_key', { masterId: masterSessionId, key: 'Enter' });
+    }, 400);
+  }
+
   if (target) {
     socket.emit('mirror_send', {
       target,
@@ -928,6 +1078,9 @@ fireBroadcastBtn.addEventListener('click', () => {
       simulateTyping
     });
   } else {
+    fireBroadcastBtn.disabled = false;
+  }
+});
     fireBroadcastBtn.disabled = false;
   }
 });
