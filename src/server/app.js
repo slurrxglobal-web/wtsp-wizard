@@ -41,6 +41,16 @@ app.get('/api/adb/devices', (req, res) => {
   res.json({ success: true, devices: adbBridge.getAllDevices() });
 });
 
+// Live screen capture for a specific ADB device
+app.get('/api/adb/screen/:serial', async (req, res) => {
+  const { serial } = req.params;
+  const screenshot = await adbBridge.captureScreenshot(serial);
+  if (!screenshot) {
+    return res.status(503).json({ success: false, message: 'Screenshot failed or device offline' });
+  }
+  res.json({ success: true, serial, screenshot });
+});
+
 app.post('/api/adb/tap', async (req, res) => {
   const { xPct, yPct, targetSerials } = req.body;
   const result = await adbBridge.mirrorTap(xPct, yPct, targetSerials);

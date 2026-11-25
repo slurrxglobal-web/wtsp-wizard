@@ -639,6 +639,27 @@ label {
   justify-content: space-between;
   padding: 12px;
   cursor: crosshair;
+  overflow: hidden;
+}
+
+.android-no-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 12px;
+  pointer-events: none;
+}
+
+.android-live-screen {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  z-index: 2;
 }
 
 .android-screen-badge {

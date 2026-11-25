@@ -74,6 +74,41 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher, adbBri
       }
     });
 
+    // Start screen polling for a specific device
+    const screenPollers = new Map(); // serial -> intervalId
+
+    socket.on('start_screen_poll', ({ serial, intervalMs = 1000 }) => {
+      if (!adbBridge) return;
+      if (screenPollers.has(serial)) return; // already polling
+
+      const poll = async () => {
+        const screenshot = await adbBridge.captureScreenshot(serial);
+        if (screenshot) {
+          socket.emit('screen_frame', { serial, screenshot });
+        }
+      };
+
+      poll(); // immediate first frame
+      const id = setInterval(poll, intervalMs);
+      screenPollers.set(serial, id);
+    });
+
+    socket.on('stop_screen_poll', ({ serial }) => {
+      const id = screenPollers.get(serial);
+      if (id) {
+        clearInterval(id);
+        screenPollers.delete(serial);
+      }
+    });
+
+    socket.on('disconnect', () => {
+      // Cleanup all pollers on client disconnect
+      for (const [serial, id] of screenPollers) {
+        clearInterval(id);
+      }
+      screenPollers.clear();
+    });
+
     // Create / Start session
     socket.on('create_session', async ({ id, label }) => {
       try {

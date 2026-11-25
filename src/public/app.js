@@ -210,18 +210,26 @@ function renderDeviceGrid() {
           <div class="ghost-cursor" id="cursor-${unit.serial}"></div>
           
           <div class="android-canvas-sim" id="canvas-sim-${unit.serial}" data-serial="${unit.serial}">
-            <div class="android-screen-badge">
-              <span>${unit.serial}</span>
-              <span>${unit.resolution.width}x${unit.resolution.height}</span>
+            <img
+              id="screen-img-${unit.serial}"
+              class="android-live-screen"
+              src=""
+              alt="Live Screen"
+              style="display:none; width:100%; height:100%; object-fit:contain; pointer-events:none; position:absolute; inset:0;"
+            >
+            <div class="android-no-screen" id="no-screen-${unit.serial}">
+              <div class="android-screen-badge">
+                <span>${unit.serial}</span>
+                <span>${unit.resolution.width}x${unit.resolution.height}</span>
+              </div>
+              <div class="android-center-content">
+                <div class="android-app-icon">🤖</div>
+                <div class="android-app-title">BlueStacks Android</div>
+                <div class="android-app-sub">Starting screen capture...</div>
+              </div>
             </div>
 
-            <div class="android-center-content">
-              <div class="android-app-icon">🤖</div>
-              <div class="android-app-title">BlueStacks Android</div>
-              <div class="android-app-sub">Click anywhere to Tap Mirror</div>
-            </div>
-
-            <div class="android-nav-bar">
+            <div class="android-nav-bar" style="position:relative; z-index:5;">
               <span class="adb-click-key" data-key="4" data-serial="${unit.serial}">◀ Back</span>
               <span class="adb-click-key" data-key="3" data-serial="${unit.serial}">● Home</span>
               <span class="adb-click-key" data-key="66" data-serial="${unit.serial}">⏎ Enter</span>
@@ -732,15 +740,60 @@ socket.on('initial_state', ({ sessions, chats, messages, adbDevices }) => {
   }
   if (adbDevices) {
     adbDevicesState = adbDevices;
+    // Start screen polling for each connected Android device
+    adbDevices.forEach(dev => startScreenPoll(dev.serial));
   }
   renderDeviceGrid();
   logFeed(`Loaded ${sessions.length} Web instances and ${adbDevicesState.length} Android devices.`);
 });
 
 socket.on('adb_devices_update', (devices) => {
+  const prevSerials = new Set(adbDevicesState.map(d => d.serial));
   adbDevicesState = devices || [];
+
+  // Start polling for newly discovered devices
+  adbDevicesState.forEach(dev => {
+    if (!prevSerials.has(dev.serial)) {
+      startScreenPoll(dev.serial);
+    }
+  });
+
+  // Stop polling for removed devices
+  for (const serial of prevSerials) {
+    if (!adbDevicesState.find(d => d.serial === serial)) {
+      stopScreenPoll(serial);
+    }
+  }
+
   renderDeviceGrid();
   logFeed(`ADB Fleet updated: ${adbDevicesState.length} Android emulators detected.`);
+});
+
+// Screen polling management
+const activeScreenPolls = new Set();
+
+function startScreenPoll(serial) {
+  if (activeScreenPolls.has(serial)) return;
+  activeScreenPolls.add(serial);
+  socket.emit('start_screen_poll', { serial, intervalMs: 1000 });
+  logFeed(`Screen stream started for device: ${serial}`);
+}
+
+function stopScreenPoll(serial) {
+  if (!activeScreenPolls.has(serial)) return;
+  activeScreenPolls.delete(serial);
+  socket.emit('stop_screen_poll', { serial });
+}
+
+// Receive live screen frames
+socket.on('screen_frame', ({ serial, screenshot }) => {
+  const img = document.getElementById(`screen-img-${serial}`);
+  const noScreen = document.getElementById(`no-screen-${serial}`);
+  if (img) {
+    img.src = screenshot;
+    img.style.display = 'block';
+    if (noScreen) noScreen.style.display = 'none';
+  }
 });
 
 socket.on('chats_updated', ({ id, chats }) => {
