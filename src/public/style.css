@@ -1207,6 +1207,186 @@ label {
   color: #ef4444;
 }
 
+.fleet-hint-pill {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+}
+
+/* Drag and Drop Card Styles */
+.device-card {
+  cursor: default;
+  transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.18s, border-color 0.18s, opacity 0.18s;
+}
+
+.device-card-header {
+  cursor: grab;
+  user-select: none;
+}
+
+.device-card-header:active {
+  cursor: grabbing;
+}
+
+.device-card.dragging {
+  opacity: 0.45;
+  transform: scale(0.97);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.4);
+}
+
+.device-card.drag-over {
+  border-color: var(--accent);
+  transform: translateY(-4px);
+  box-shadow: 0 0 0 2px var(--accent), 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+
+/* ========================================================
+   MASTER FOCUS STUDIO MODAL (Full Pop-up Controller)
+   ======================================================== */
+.master-focus-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.master-focus-backdrop.show {
+  display: flex;
+}
+
+.master-focus-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  width: 92vw;
+  max-width: 1280px;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.master-focus-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.focus-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.focus-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.master-focus-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.focus-sync-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--status-online);
+  background: rgba(16, 185, 129, 0.1);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.focus-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.focus-kbd-hint {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.master-focus-body {
+  flex: 1;
+  background: #090e11;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.master-viewport-wrap {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111b21;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: crosshair;
+}
+
+.master-stream-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  display: none;
+  user-select: none;
+}
+
+.master-stream-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.master-ghost-cursor {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 14px var(--accent), 0 0 3px #ffffff;
+  pointer-events: none;
+  z-index: 100;
+  transform: translate(-50%, -50%);
+  display: none;
+}
+
 /* ========================================================
    MODAL
    ======================================================== */

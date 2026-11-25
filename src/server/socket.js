@@ -65,6 +65,31 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher, adbBri
       }
     });
 
+    socket.on('puppet_batch', async ({ count = 5 }) => {
+      try {
+        if (!puppeteerFleet) return;
+        await puppeteerFleet.batchCreate(count);
+      } catch (err) {
+        socket.emit('operation_error', { message: `Puppeteer Batch: ${err.message}` });
+      }
+    });
+
+    socket.on('puppet_clear_all', async () => {
+      try {
+        if (!puppeteerFleet) return;
+        await puppeteerFleet.closeAllSessions();
+        io.emit('initial_state', {
+          sessions: sessionManager.getAllSessions(),
+          chats: sessionManager.getAllChats(),
+          messages: sessionManager.getAllMessages(),
+          adbDevices: [],
+          puppetSessions: []
+        });
+      } catch (err) {
+        socket.emit('operation_error', { message: err.message });
+      }
+    });
+
     socket.on('puppet_close', async ({ id }) => {
       try {
         if (!puppeteerFleet) return;

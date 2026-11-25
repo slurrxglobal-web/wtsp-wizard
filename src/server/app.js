@@ -27,16 +27,12 @@ app.use(express.json());
 app.use(express.static(publicDir));
 
 // Initialize Core Managers
-const sessionManager = new SessionManager();      // Baileys — fast broadcast
+const sessionManager = new SessionManager();      // Baileys — fast broadcast (headless fallback)
 const actionDispatcher = new ActionDispatcher(sessionManager);
-const adbBridge = new AdbFleetBridge();           // BlueStacks ADB
-const puppeteerFleet = new PuppeteerFleet();      // Real WhatsApp Web sessions
+const puppeteerFleet = new PuppeteerFleet();      // Real WhatsApp Web sessions (Primary)
 
 // Setup Socket.io real-time layer
-setupSocketHandlers(io, sessionManager, actionDispatcher, adbBridge, puppeteerFleet);
-
-// Start background ADB auto-polling for BlueStacks / Cloud Phones
-adbBridge.startAutoPoll(4000);
+setupSocketHandlers(io, sessionManager, actionDispatcher, null, puppeteerFleet);
 
 // ── Puppeteer REST API ──────────────────────────────────────────────────────
 
@@ -57,7 +53,28 @@ app.post('/api/puppet/sessions', async (req, res) => {
   }
 });
 
-// Close a Puppeteer session
+// Batch create Puppeteer sessions
+app.post('/api/puppet/batch', async (req, res) => {
+  const count = parseInt(req.body.count, 10) || 5;
+  try {
+    const sessions = await puppeteerFleet.batchCreate(count);
+    res.json({ success: true, sessions });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Clear all sessions
+app.post('/api/puppet/clear', async (req, res) => {
+  try {
+    await puppeteerFleet.closeAllSessions();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Close a single Puppeteer session
 app.delete('/api/puppet/sessions/:id', async (req, res) => {
   try {
     await puppeteerFleet.closeSession(req.params.id);

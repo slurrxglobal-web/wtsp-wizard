@@ -94,7 +94,7 @@ export class PuppeteerFleet extends EventEmitter {
     return this._sanitize(id);
   }
 
-  async closeSession(id) {
+  async closeSession(id, cleanDisk = false) {
     this._stopPolling(id);
     const s = this.sessions.get(id);
     if (s) {
@@ -103,11 +103,51 @@ export class PuppeteerFleet extends EventEmitter {
       this.emit('session_removed', id);
       console.log(`[PuppeteerFleet] Session closed: ${id}`);
     }
+
+    if (cleanDisk) {
+      const userDataDir = path.join(SESSIONS_BASE, id);
+      if (fs.existsSync(userDataDir)) {
+        try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch (_) {}
+      }
+    }
+
     if (this.master === id) {
       // Elect next master
       const remaining = Array.from(this.sessions.keys());
       this.master = remaining.length > 0 ? remaining[0] : null;
     }
+  }
+
+  async closeAllSessions(cleanDisk = false) {
+    const ids = Array.from(this.sessions.keys());
+    console.log(`[PuppeteerFleet] Closing all ${ids.length} sessions...`);
+    for (const id of ids) {
+      await this.closeSession(id, cleanDisk);
+    }
+    this.master = null;
+    return true;
+  }
+
+  /**
+   * Batch creates N sessions staggered by a delay to avoid CPU/RAM spike
+   */
+  async batchCreate(count = 5, staggerMs = 1200) {
+    const created = [];
+    const baseCount = this.sessions.size;
+
+    for (let i = 1; i <= count; i++) {
+      const num = baseCount + i;
+      const id = `puppet_${String(num).padStart(2, '0')}`;
+      const label = `WhatsApp ${num}`;
+      
+      const session = await this.createSession(id, label);
+      created.push(session);
+
+      if (i < count) {
+        await new Promise(r => setTimeout(r, staggerMs));
+      }
+    }
+    return created;
   }
 
   // ─── Screenshot Polling ───────────────────────────────────────────────────

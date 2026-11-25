@@ -57,8 +57,7 @@
         <span>Console</span>
         <kbd class="kbd-shortcut">C</kbd>
       </button>
-      <button id="clearUnpairedBtn" class="btn btn-secondary" title="Remove all unconnected sessions">Clean Offline</button>
-      <button id="addRealWABtn" class="btn btn-secondary">+ Real WA</button>
+      <button id="cleanAllBtn" class="btn btn-secondary" title="Close all running WhatsApp sessions">Clean All</button>
       <button id="addSingleUnitBtn" class="btn btn-secondary">+ Add Device</button>
       <button id="addBatchUnitsBtn" class="btn btn-primary">+ Batch (5)</button>
     </div>
@@ -127,34 +126,52 @@
     <div class="main-bar">
       <div class="bar-title">
         <div class="title-with-filters">
-          <h2>Device Farm Instances</h2>
-          <div class="fleet-filter-group">
-            <button class="filter-chip active" data-filter="all">All Fleets (<span id="countAll">0</span>)</button>
-            <button class="filter-chip" data-filter="puppet">Real WhatsApp (<span id="countPuppet">0</span>)</button>
-            <button class="filter-chip" data-filter="android">Android / BlueStacks (<span id="countAndroid">0</span>)</button>
-            <button class="filter-chip" data-filter="web">Baileys Web (<span id="countWeb">0</span>)</button>
-          </div>
+          <h2>Real WhatsApp Fleet</h2>
+          <span class="fleet-hint-pill">Drag &amp; drop cards to reorder</span>
         </div>
-        <span class="bar-count" id="activeFilterCount">Active Instances</span>
+        <span class="bar-count" id="activeFilterCount">0 Active Instances</span>
       </div>
       <div class="bar-tools">
-        <button id="scanAdbBtn" class="btn btn-secondary btn-sm" title="Scan running BlueStacks & Cloud Phones">
-          Scan ADB
+        <button id="openMasterStudioBtn" class="btn btn-secondary btn-sm" title="Expand Master into big controller window" style="display:none;">
+          ⛶ Open Master Studio
         </button>
-        <div class="android-key-bar" title="Hardware Keys Mirror (All Android)">
-          <button id="adbBackBtn" class="btn-key" title="Back (KeyEvent 4)">◀</button>
-          <button id="adbHomeBtn" class="btn-key" title="Home (KeyEvent 3)">●</button>
-          <button id="adbEnterBtn" class="btn-key" title="Enter (KeyEvent 66)">⏎</button>
-        </div>
         <span id="fleetStatusText" class="status-indicator">STANDBY</span>
       </div>
     </div>
 
-    <!-- High-Density Studio Grid -->
+    <!-- High-Density Studio Grid with Drag & Drop -->
     <div id="phoneFarmGrid" class="device-grid">
       <!-- Device Cards dynamically rendered here -->
     </div>
   </main>
+
+  <!-- Big Pop-up Master Studio Modal -->
+  <div id="masterStudioModal" class="studio-modal-backdrop master-focus-backdrop">
+    <div class="master-focus-card">
+      <div class="master-focus-header">
+        <div class="focus-title-group">
+          <div class="focus-badge">⭐ MASTER CONTROLLER</div>
+          <h3 id="masterFocusTitle">Master WhatsApp Studio</h3>
+          <span class="focus-sync-tag">⚡ Mirrored in real time to all slave instances</span>
+        </div>
+        <div class="focus-header-actions">
+          <span class="focus-kbd-hint">Type anywhere to mirror keystrokes</span>
+          <button id="closeMasterStudioBtn" class="btn-icon" title="Minimize Master Studio">&times;</button>
+        </div>
+      </div>
+      <div class="master-focus-body">
+        <div class="master-viewport-wrap" id="masterStudioViewport">
+          <div class="master-ghost-cursor" id="masterModalGhostCursor"></div>
+          <img id="masterStudioScreen" class="master-stream-img" src="" alt="Master WhatsApp Stream">
+          <div id="masterStudioPlaceholder" class="master-stream-placeholder">
+            <div class="unpaired-icon" style="font-size:36px;">🌐</div>
+            <p style="font-weight:600; font-size:14px; margin-top:8px;">Connecting to Master WhatsApp...</p>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:4px;">Live screen will appear shortly</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- High-Precision QR Pairing Modal -->
   <div id="phoneDetailModal" class="studio-modal-backdrop">
