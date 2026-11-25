@@ -482,7 +482,10 @@ function attachInteractiveEvents() {
     }
   }
 
-  // Baileys master toggle
+  // Baileys & Android master toggle
+  document.querySelectorAll('.master-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
       masterSessionId = id;
       logFeed(`⭐ DESIGNATED MASTER CONTROLLER: ${id.toUpperCase()}`);
       renderDeviceGrid();
@@ -1078,9 +1081,6 @@ fireBroadcastBtn.addEventListener('click', () => {
       simulateTyping
     });
   } else {
-    fireBroadcastBtn.disabled = false;
-  }
-});
     fireBroadcastBtn.disabled = false;
   }
 });
