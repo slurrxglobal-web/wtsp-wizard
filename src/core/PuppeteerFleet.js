@@ -10,10 +10,16 @@ import puppeteer from 'puppeteer';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
+import { AntiBanGuard } from './AntiBanGuard.js';
 
-const SESSIONS_BASE = path.resolve(process.cwd(), 'sessions', 'puppeteer');
+const SESSIONS_BASE = path.resolve(process.cwd(), 'data', 'puppeteer_profiles');
 const SCREENSHOT_INTERVAL_MS = 1000; // 1 second refresh
 const VIEWPORT = { width: 1280, height: 820 };
+
+function sanitizeId(id) {
+  if (!id) return '';
+  return String(id).replace(/[^a-zA-Z0-9_-]/g, '');
+}
 
 export class PuppeteerFleet extends EventEmitter {
   constructor() {
@@ -29,7 +35,10 @@ export class PuppeteerFleet extends EventEmitter {
 
   // ─── Session Lifecycle ────────────────────────────────────────────────────
 
-  async createSession(id, label = '') {
+  async createSession(rawId, label = '') {
+    const id = sanitizeId(rawId);
+    if (!id) throw new Error('Invalid session ID');
+
     if (this.sessions.has(id)) {
       const existing = this.sessions.get(id);
       if (existing.status === 'connected' || existing.status === 'qr_ready') {
@@ -94,7 +103,9 @@ export class PuppeteerFleet extends EventEmitter {
     return this._sanitize(id);
   }
 
-  async closeSession(id, cleanDisk = false) {
+  async closeSession(rawId, cleanDisk = false) {
+    const id = sanitizeId(rawId);
+    if (!id) return;
     this._stopPolling(id);
     const s = this.sessions.get(id);
     if (s) {
@@ -215,26 +226,136 @@ export class PuppeteerFleet extends EventEmitter {
                         await s.page.$('#pane-side') ||
                         await s.page.$('.two');
 
-      if (chatList && s.status !== 'connected') {
-        s.status = 'connected';
+      if (chatList) {
+        if (s.status !== 'connected') {
+          s.status = 'connected';
+          try {
+            const profileName = await s.page.evaluate(() => {
+              const el = document.querySelector('header [title]') || document.querySelector('header span[dir="auto"]');
+              return el ? el.innerText || el.getAttribute('title') : '';
+            });
+            if (profileName) s.accountName = profileName;
+          } catch (_) {}
 
-        // Try extracting account profile name or info
-        try {
-          const profileName = await s.page.evaluate(() => {
-            const el = document.querySelector('header [title]') || document.querySelector('header span[dir="auto"]');
-            return el ? el.innerText || el.getAttribute('title') : '';
-          });
-          if (profileName) s.accountName = profileName;
-        } catch (_) {}
-
-        console.log(`[PuppeteerFleet][${id}] Connected — WhatsApp Web logged in (${s.accountName || 'Active'})`);
-        this.emit('session_update', this._sanitize(id));
-      } else if (qrVisible && s.status !== 'qr_ready' && s.status !== 'connected') {
-        s.status = 'qr_ready';
-        console.log(`[PuppeteerFleet][${id}] QR ready — waiting for phone scan`);
-        this.emit('session_update', this._sanitize(id));
+          console.log(`[PuppeteerFleet][${id}] Connected — WhatsApp Web logged in (${s.accountName || 'Active'})`);
+          this.emit('session_update', this._sanitize(id));
+        }
+      } else if (qrVisible) {
+        if (s.status !== 'qr_ready') {
+          s.status = 'qr_ready';
+          s.accountName = null;
+          console.log(`[PuppeteerFleet][${id}] QR ready — waiting for phone scan`);
+          this.emit('session_update', this._sanitize(id));
+        }
       }
     } catch (_) {}
+  }
+
+  // ─── Single Session Click (No Mirroring) ──────────────────────────────────
+  async singleClick(sessionId, xPct, yPct) {
+    const s = this.sessions.get(sessionId);
+    if (!s || !s.page) return;
+    const realX = Math.round((xPct / 100) * VIEWPORT.width);
+    const realY = Math.round((yPct / 100) * VIEWPORT.height);
+    await s.page.mouse.click(realX, realY).catch(() => {});
+    this.schedulePostActionScreenshots(sessionId);
+  }
+
+  // Rapid screen update helper to ensure responsiveness on actions
+  async triggerImmediateScreenshot(id) {
+    const s = this.sessions.get(id);
+    if (!s || !s.page || s.isCapturing) return;
+    s.isCapturing = true;
+    try {
+      const buf = await s.page.screenshot({
+        type: 'jpeg',
+        quality: 40,
+        encoding: 'base64'
+      });
+      this.emit('screenshot', { id, screenshot: `data:image/jpeg;base64,${buf}` });
+    } catch (_) {} finally {
+      s.isCapturing = false;
+    }
+  }
+
+  schedulePostActionScreenshots(primaryId) {
+    setTimeout(async () => {
+      await this.triggerImmediateScreenshot(primaryId);
+      for (const id of this.sessions.keys()) {
+        if (id !== primaryId) {
+          this.triggerImmediateScreenshot(id);
+        }
+      }
+    }, 120);
+  }
+
+  // ─── Broadcast to Fleet with Spintax, Targeting & Complete Awaiting ───────
+  async broadcastMessage({ target = '', message = '', minDelay = 1000, maxDelay = 2500, simulateTyping = true }) {
+    const activeSessions = Array.from(this.sessions.values()).filter(s => s.status === 'connected' && s.page);
+    if (activeSessions.length === 0) {
+      return { success: false, message: 'No connected WhatsApp Web sessions found.' };
+    }
+
+    const cleanPhone = target ? target.replace(/\D/g, '') : '';
+    const results = [];
+
+    this.emit('action_started', {
+      type: 'broadcast',
+      total: activeSessions.length,
+      target: cleanPhone || 'Active Chats'
+    });
+
+    for (let i = 0; i < activeSessions.length; i++) {
+      const s = activeSessions[i];
+      const parsedText = AntiBanGuard.parseSpintax(message);
+
+      try {
+        if (cleanPhone) {
+          // Accurate recipient routing using WhatsApp Web direct send URL
+          await s.page.goto(`https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(parsedText)}`, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000
+          });
+
+          // Wait for send button or compose box
+          const sendBtnSelector = 'span[data-icon="send"], button[aria-label="Send"], [data-testid="send"]';
+          const sendBtn = await s.page.waitForSelector(sendBtnSelector, { timeout: 15000 }).catch(() => null);
+
+          if (sendBtn) {
+            await sendBtn.click().catch(() => {});
+          } else {
+            await s.page.keyboard.press('Enter').catch(() => {});
+          }
+        } else {
+          // Send to currently open conversation on this instance
+          const composeBox = await s.page.$('footer [contenteditable="true"], [data-testid="conversation-compose-box-input"]');
+          if (composeBox) {
+            await composeBox.click().catch(() => {});
+            // Type full text and wait until complete
+            await s.page.keyboard.type(parsedText, { delay: simulateTyping ? 25 : 5 });
+            await s.page.keyboard.press('Enter').catch(() => {});
+          } else {
+            // Fallback: type directly and press Enter
+            await s.page.keyboard.type(parsedText, { delay: simulateTyping ? 25 : 5 });
+            await s.page.keyboard.press('Enter').catch(() => {});
+          }
+        }
+
+        results.push({ id: s.id, status: 'sent', recipient: cleanPhone || 'Active Chat' });
+        this.emit('action_progress', { current: i + 1, total: activeSessions.length, sessionId: s.id, status: 'sent' });
+      } catch (err) {
+        results.push({ id: s.id, status: 'failed', error: err.message });
+        this.emit('action_progress', { current: i + 1, total: activeSessions.length, sessionId: s.id, status: 'failed' });
+      }
+
+      // Human Jitter Delay between sessions
+      if (i < activeSessions.length - 1) {
+        await AntiBanGuard.jitter(minDelay, maxDelay);
+      }
+    }
+
+    this.emit('action_completed', { results });
+    return { success: true, count: results.length, results };
   }
 
   // ─── Master → Slave Mirroring ─────────────────────────────────────────────
@@ -262,6 +383,7 @@ export class PuppeteerFleet extends EventEmitter {
       promises.push(s.page.mouse.click(slaveX, slaveY).catch(() => {}));
     }
     await Promise.all(promises);
+    this.schedulePostActionScreenshots(masterId);
   }
 
   /**
@@ -279,6 +401,7 @@ export class PuppeteerFleet extends EventEmitter {
       promises.push(s.page.keyboard.type(text, { delay: 30 }).catch(() => {}));
     }
     await Promise.all(promises);
+    this.schedulePostActionScreenshots(masterId);
   }
 
   /**
@@ -296,6 +419,7 @@ export class PuppeteerFleet extends EventEmitter {
       promises.push(s.page.keyboard.press(key).catch(() => {}));
     }
     await Promise.all(promises);
+    this.schedulePostActionScreenshots(masterId);
   }
 
   /**
@@ -316,6 +440,7 @@ export class PuppeteerFleet extends EventEmitter {
       promises.push(s.page.mouse.wheel({ deltaY }).catch(() => {}));
     }
     await Promise.all(promises);
+    this.schedulePostActionScreenshots(masterId);
   }
 
   // ─── Serialization ────────────────────────────────────────────────────────

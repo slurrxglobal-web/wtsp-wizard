@@ -40,6 +40,18 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher, adbBri
     puppeteerFleet.on('session_removed', (id) => {
       io.emit('puppet_session_removed', id);
     });
+
+    puppeteerFleet.on('action_started', (data) => {
+      io.emit('action_started', data);
+    });
+
+    puppeteerFleet.on('action_progress', (data) => {
+      io.emit('action_progress', data);
+    });
+
+    puppeteerFleet.on('action_completed', (data) => {
+      io.emit('action_completed', data);
+    });
   }
 
   // ── Socket connection handler ─────────────────────────────────────────────
@@ -110,6 +122,12 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher, adbBri
       await puppeteerFleet.mirrorClick(master, xPct, yPct);
     });
 
+    // Single click on a specific session (No mirroring)
+    socket.on('puppet_single_click', async ({ id, xPct, yPct }) => {
+      if (!puppeteerFleet || !id) return;
+      await puppeteerFleet.singleClick(id, xPct, yPct);
+    });
+
     // Master type → mirror to all slaves
     socket.on('puppet_type', async ({ masterId, text }) => {
       if (!puppeteerFleet) return;
@@ -131,43 +149,14 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher, adbBri
       await puppeteerFleet.mirrorScroll(master, xPct, yPct, deltaY);
     });
 
-    // ── ADB socket events ───────────────────────────────────────────────────
-
-    socket.on('adb_tap', async ({ xPct, yPct, targetSerials }) => {
-      if (adbBridge) await adbBridge.mirrorTap(xPct, yPct, targetSerials);
-    });
-
-    socket.on('adb_text', async ({ text, targetSerials }) => {
-      if (adbBridge) await adbBridge.mirrorText(text, targetSerials);
-    });
-
-    socket.on('adb_key', async ({ keyCode, targetSerials }) => {
-      if (adbBridge) await adbBridge.mirrorKey(keyCode, targetSerials);
-    });
-
-    socket.on('adb_refresh', async () => {
-      if (adbBridge) {
-        const devices = await adbBridge.scanDevices();
-        socket.emit('adb_devices_update', devices);
+    // Robust broadcast to all connected WhatsApp Web instances
+    socket.on('puppet_broadcast', async (payload) => {
+      if (!puppeteerFleet) return;
+      try {
+        await puppeteerFleet.broadcastMessage(payload);
+      } catch (err) {
+        socket.emit('operation_error', { message: `Broadcast: ${err.message}` });
       }
-    });
-
-    // Start screen polling for a specific ADB device
-    const screenPollers = new Map();
-
-    socket.on('start_screen_poll', ({ serial, intervalMs = 1000 }) => {
-      if (!adbBridge || screenPollers.has(serial)) return;
-      const poll = async () => {
-        const screenshot = await adbBridge.captureScreenshot(serial);
-        if (screenshot) socket.emit('screen_frame', { serial, screenshot });
-      };
-      poll();
-      screenPollers.set(serial, setInterval(poll, intervalMs));
-    });
-
-    socket.on('stop_screen_poll', ({ serial }) => {
-      const id = screenPollers.get(serial);
-      if (id) { clearInterval(id); screenPollers.delete(serial); }
     });
 
     // ── Baileys session events ──────────────────────────────────────────────

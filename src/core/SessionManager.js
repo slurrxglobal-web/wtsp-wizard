@@ -24,11 +24,16 @@ function extractMessageText(message) {
   );
 }
 
+function sanitizeId(id) {
+  if (!id) return '';
+  return String(id).replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
 export class SessionManager extends EventEmitter {
   constructor(options = {}) {
     super();
-    this.sessionsDir = options.sessionsDir || path.resolve(process.cwd(), 'sessions');
-    this.sessions = new Map(); // id -> { id, label, status, user, qr, sock, retryCount }
+    this.sessionsDir = options.sessionsDir || path.resolve(process.cwd(), 'sessions', 'baileys');
+    this.sessions = new Map(); // id -> { id, label, status, user, qr, sock, retryCount, reconnectTimer }
     this.logger = pino({ level: 'silent' });
 
     if (!fs.existsSync(this.sessionsDir)) {
@@ -41,16 +46,20 @@ export class SessionManager extends EventEmitter {
    */
   async restoreSavedSessions() {
     try {
+      if (!fs.existsSync(this.sessionsDir)) return;
       const items = fs.readdirSync(this.sessionsDir);
       for (const item of items) {
+        // Never touch puppeteer or system folders
+        if (item === 'puppeteer' || item.startsWith('.')) continue;
+
         const sessionPath = path.join(this.sessionsDir, item);
         const credsFile = path.join(sessionPath, 'creds.json');
         if (fs.statSync(sessionPath).isDirectory()) {
           if (fs.existsSync(credsFile)) {
             console.log(`[SessionManager] Restoring authenticated session: ${item}`);
             await this.initSession(item, item);
-          } else {
-            // Clean empty unauthenticated folders
+          } else if (item.startsWith('account_')) {
+            // Clean empty unauthenticated session folders
             try {
               fs.rmSync(sessionPath, { recursive: true, force: true });
             } catch (e) {}
@@ -64,16 +73,23 @@ export class SessionManager extends EventEmitter {
 
   /**
    * Initializes or connects a session with the given ID.
-   * @param {string} sessionId
+   * @param {string} rawSessionId
    * @param {string} label
    */
-  async initSession(sessionId, label = '') {
-    if (!sessionId) throw new Error('sessionId is required');
+  async initSession(rawSessionId, label = '') {
+    const sessionId = sanitizeId(rawSessionId);
+    if (!sessionId) throw new Error('Valid sessionId is required');
 
     // If already connected or connecting
     const existing = this.sessions.get(sessionId);
     if (existing && existing.sock && existing.status === 'connected') {
       return existing;
+    }
+
+    // Cancel any pending reconnect timer
+    if (existing && existing.reconnectTimer) {
+      clearTimeout(existing.reconnectTimer);
+      existing.reconnectTimer = null;
     }
 
     const sessionAuthPath = path.join(this.sessionsDir, sessionId);
@@ -92,7 +108,8 @@ export class SessionManager extends EventEmitter {
       contacts: new Map(),
       messages: new Map(),
       createdAt: Date.now(),
-      retryCount: 0
+      retryCount: 0,
+      reconnectTimer: null
     };
 
     // Load any cached chats and discover contacts from stored session keys
@@ -165,7 +182,7 @@ export class SessionManager extends EventEmitter {
             console.log(`[${sessionId}] QR successfully paired! Code 515 (restartRequired). Reconnecting immediately...`);
             sessionData.status = 'connecting';
             this.emit('session_update', this.getSanitizedSession(sessionId));
-            setTimeout(() => this.initSession(sessionId, label), 800);
+            sessionData.reconnectTimer = setTimeout(() => this.initSession(sessionId, label), 800);
             return;
           }
 
@@ -174,7 +191,7 @@ export class SessionManager extends EventEmitter {
             console.log(`[${sessionId}] Saved credentials found. Reconnecting (Code: ${statusCode})...`);
             sessionData.status = 'connecting';
             this.emit('session_update', this.getSanitizedSession(sessionId));
-            setTimeout(() => this.initSession(sessionId, label), 1500);
+            sessionData.reconnectTimer = setTimeout(() => this.initSession(sessionId, label), 1500);
             return;
           }
 
@@ -341,11 +358,19 @@ export class SessionManager extends EventEmitter {
 
   /**
    * Deletes and cleans up a session.
-   * @param {string} sessionId
+   * @param {string} rawSessionId
    */
-  async removeSession(sessionId) {
+  async removeSession(rawSessionId) {
+    const sessionId = sanitizeId(rawSessionId);
+    if (!sessionId) return false;
+
     const session = this.sessions.get(sessionId);
     if (!session) return false;
+
+    if (session.reconnectTimer) {
+      clearTimeout(session.reconnectTimer);
+      session.reconnectTimer = null;
+    }
 
     if (session.sock) {
       try {

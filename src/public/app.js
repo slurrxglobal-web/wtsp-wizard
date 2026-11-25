@@ -42,6 +42,58 @@ const collapseConsoleBtn   = document.getElementById('collapseConsoleBtn');
 const targetRecipientInput  = document.getElementById('targetRecipient');
 const broadcastMessageInput = document.getElementById('broadcastMessage');
 const fireBroadcastBtn      = document.getElementById('fireBroadcastBtn');
+const minJitterInput        = document.getElementById('minJitter');
+const maxJitterInput        = document.getElementById('maxJitter');
+const humanTypingCheck      = document.getElementById('humanTypingCheck');
+
+// ── Accurate Coordinates Helper (Eliminates Letterboxing Offsets) ────────────
+function calculateAccurateCoordinates(event, containerEl, imgEl, nativeWidth = 1280, nativeHeight = 820) {
+  const targetRect = (imgEl && imgEl.style.display !== 'none' && imgEl.offsetWidth > 0)
+    ? imgEl.getBoundingClientRect()
+    : containerEl.getBoundingClientRect();
+
+  const cWidth = targetRect.width;
+  const cHeight = targetRect.height;
+
+  if (cWidth <= 0 || cHeight <= 0) return { xPct: 50, yPct: 50 };
+
+  const nativeAspect = nativeWidth / nativeHeight;
+  const containerAspect = cWidth / cHeight;
+
+  let renderedW, renderedH, padX = 0, padY = 0;
+
+  if (containerAspect > nativeAspect) {
+    // Pillarboxed (bars on left/right)
+    renderedH = cHeight;
+    renderedW = cHeight * nativeAspect;
+    padX = (cWidth - renderedW) / 2;
+  } else {
+    // Letterboxed (bars on top/bottom)
+    renderedW = cWidth;
+    renderedH = cWidth / nativeAspect;
+    padY = (cHeight - renderedH) / 2;
+  }
+
+  const rawX = event.clientX - targetRect.left - padX;
+  const rawY = event.clientY - targetRect.top - padY;
+
+  const xPct = Math.max(0, Math.min(100, (rawX / renderedW) * 100));
+  const yPct = Math.max(0, Math.min(100, (rawY / renderedH) * 100));
+
+  return { xPct, yPct };
+}
+
+// ── Unique Device ID Generator (Prevents Collisions on Delete & Add) ────────
+function getNextPuppetId() {
+  let i = 1;
+  while (puppetSessions.has(`puppet_${String(i).padStart(2, '0')}`)) {
+    i++;
+  }
+  return {
+    id: `puppet_${String(i).padStart(2, '0')}`,
+    label: `WhatsApp ${i}`
+  };
+}
 
 // Master Focus Studio Modal Elements
 const masterStudioModalEl       = document.getElementById('masterStudioModal');
@@ -372,15 +424,15 @@ function attachInteractiveEvents() {
     const sessionId = vp.getAttribute('data-puppet-id');
 
     vp.addEventListener('click', (e) => {
-      const rect = vp.getBoundingClientRect();
-      const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-      const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top)  / rect.height) * 100));
+      const cardImg = document.getElementById(`puppet-screen-${sessionId}`);
+      const { xPct, yPct } = calculateAccurateCoordinates(e, vp, cardImg);
 
       if (sessionId === masterSessionId) {
         socket.emit('puppet_click', { masterId: sessionId, xPct, yPct });
         logFeed(`Master tap at (${Math.round(xPct)}%, ${Math.round(yPct)}%) -> Mirrored across all WhatsApp instances`);
       } else {
-        socket.emit('puppet_click', { masterId: sessionId, xPct, yPct });
+        socket.emit('puppet_single_click', { id: sessionId, xPct, yPct });
+        logFeed(`Single tap on [${sessionId}] at (${Math.round(xPct)}%, ${Math.round(yPct)}%) (No mirroring)`);
       }
     });
 
@@ -448,13 +500,7 @@ if (masterStudioViewportEl) {
   masterStudioViewportEl.addEventListener('click', (e) => {
     if (!masterSessionId) return;
 
-    const img = masterStudioScreenEl;
-    const rect = img && img.style.display !== 'none'
-      ? img.getBoundingClientRect()
-      : masterStudioViewportEl.getBoundingClientRect();
-
-    const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-    const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top)  / rect.height) * 100));
+    const { xPct, yPct } = calculateAccurateCoordinates(e, masterStudioViewportEl, masterStudioScreenEl);
 
     socket.emit('puppet_click', { masterId: masterSessionId, xPct, yPct });
     logFeed(`🎯 Master Studio Click (${Math.round(xPct)}%, ${Math.round(yPct)}%) -> Replicating to all background instances`);
@@ -504,10 +550,9 @@ window.addEventListener('keydown', (e) => {
 // ── 9. Header Buttons (Single Add, Batch 5, Clean All) ──────────────────────
 if (addSingleUnitBtn) {
   addSingleUnitBtn.addEventListener('click', () => {
-    const num = puppetSessions.size + 1;
-    const id = `puppet_${String(num).padStart(2, '0')}`;
-    socket.emit('puppet_create', { id, label: `WhatsApp ${num}` });
-    logFeed(`🚀 Launching real WhatsApp instance [${id}]...`);
+    const next = getNextPuppetId();
+    socket.emit('puppet_create', { id: next.id, label: next.label });
+    logFeed(`🚀 Launching real WhatsApp instance [${next.id}]...`);
   });
 }
 
@@ -527,12 +572,14 @@ if (cleanAllBtn) {
   });
 }
 
-// Broadcast dispatch to all real WhatsApp Web sessions
+// Broadcast dispatch with targeting, spintax, human delay & typing emulation
 if (fireBroadcastBtn) {
   fireBroadcastBtn.addEventListener('click', () => {
     const message = broadcastMessageInput ? broadcastMessageInput.value.trim() : '';
+    const target  = targetRecipientInput  ? targetRecipientInput.value.trim()  : '';
+
     if (!message) {
-      alert('Please enter a message to broadcast');
+      alert('Please enter a message template to broadcast');
       return;
     }
     if (puppetSessions.size === 0) {
@@ -540,15 +587,21 @@ if (fireBroadcastBtn) {
       return;
     }
 
-    fireBroadcastBtn.disabled = true;
-    logFeed(`Dispatching broadcast message to all ${puppetSessions.size} WhatsApp instances...`);
+    const minDelay = minJitterInput ? parseFloat(minJitterInput.value) * 1000 : 1000;
+    const maxDelay = maxJitterInput ? parseFloat(maxJitterInput.value) * 1000 : 2500;
+    const simulateTyping = humanTypingCheck ? humanTypingCheck.checked : true;
 
-    socket.emit('puppet_type', { masterId: masterSessionId, text: message });
-    setTimeout(() => {
-      socket.emit('puppet_key', { masterId: masterSessionId, key: 'Enter' });
-      fireBroadcastBtn.disabled = false;
-      logFeed('Broadcast message entered & sent across all instances.');
-    }, 500);
+    fireBroadcastBtn.disabled = true;
+    fireBroadcastBtn.textContent = 'Dispatching...';
+    logFeed(`🚀 Initiating fleet broadcast to ${puppetSessions.size} instances ${target ? `(Target: ${target})` : '(Open Chats)'}...`);
+
+    socket.emit('puppet_broadcast', {
+      target,
+      message,
+      minDelay,
+      maxDelay,
+      simulateTyping
+    });
   });
 }
 
@@ -606,8 +659,27 @@ socket.on('puppet_screenshot', ({ id, screenshot }) => {
   }
 });
 
+socket.on('action_started', (data) => {
+  logFeed(`📡 Fleet action started (${data.total} devices) -> Target: ${data.target}`);
+});
+
+socket.on('action_progress', (data) => {
+  logFeed(`Progress [${data.current}/${data.total}]: ${data.sessionId} -> ${data.status.toUpperCase()}`);
+});
+
+socket.on('action_completed', (data) => {
+  if (fireBroadcastBtn) {
+    fireBroadcastBtn.disabled = false;
+    fireBroadcastBtn.textContent = 'Dispatch to Fleet';
+  }
+  logFeed(`✅ Broadcast transmission completed successfully across all devices.`);
+});
+
 socket.on('operation_error', (data) => {
   logFeed(`[Error] ${data.message}`);
   alert(data.message);
-  if (fireBroadcastBtn) fireBroadcastBtn.disabled = false;
+  if (fireBroadcastBtn) {
+    fireBroadcastBtn.disabled = false;
+    fireBroadcastBtn.textContent = 'Dispatch to Fleet';
+  }
 });

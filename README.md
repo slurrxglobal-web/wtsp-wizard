@@ -1,6 +1,6 @@
 # 🧙‍♂️ Wtsp Wizard — Multi-Session WhatsApp Orchestrator & Action Mirror
 
-[![Node.js Version](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org/)
+[![Node.js Version](https://img.shields.io/badge/Node.js-22%2B-green.svg)](https://nodejs.org/)
 [![WhatsApp Engine](https://img.shields.io/badge/Engine-Baileys%20WebSocket-blue.svg)](https://github.com/WhiskeySockets/Baileys)
 [![Architecture](https://img.shields.io/badge/Architecture-Master--Worker%20Mirroring-purple.svg)](#architecture)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -66,10 +66,10 @@ flowchart TD
 
 ## 🛠️ Tech Stack
 
-- **Backend**: Node.js (v18+), Express.js, Socket.io
-- **WhatsApp Engine**: `@whiskeysockets/baileys` (Multi-device WebSocket)
-- **Session Storage**: Multi-file distributed auth state store (`auth_info_multi/`)
-- **Frontend Dashboard**: Tailwind CSS, Real-time WebSockets
+- **Backend**: Node.js (v20+ / v22+ Recommended), Express.js, Socket.io, Puppeteer
+- **WhatsApp Engine**: Real WhatsApp Web (Puppeteer Chrome Instances) & Baileys WebSocket Fallback
+- **Session Storage**: Multi-profile distributed state store (`data/puppeteer_profiles/` & `sessions/baileys/`)
+- **Frontend Dashboard**: Real-time WebSockets, HTML5 Canvas & Puzzle Drag-and-Drop
 - **Queue & Jitter**: In-memory priority queue with jitter & rate-limiting
 
 ---
@@ -77,7 +77,7 @@ flowchart TD
 ## 📦 Getting Started
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) v18.0.0 or higher
+- [Node.js](https://nodejs.org/) v20.0.0 or higher (v22+ LTS Recommended for modern Chrome Puppeteer support)
 - Git installed on host machine
 
 ### Installation

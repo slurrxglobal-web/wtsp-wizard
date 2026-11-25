@@ -38,20 +38,39 @@ export class AntiBanGuard {
 
   /**
    * Formats a raw number or string into a valid WhatsApp JID.
+   * Rejects malformed strings, alphabets, or empty strings.
    * @param {string} target - Target phone number or JID
-   * @returns {string} Sanitized WhatsApp JID
+   * @returns {string|null} Valid WhatsApp JID or null if invalid
    */
   static sanitizeTarget(target) {
-    if (!target) return '';
+    if (!target || typeof target !== 'string') return null;
     const cleaned = target.trim();
+    if (!cleaned) return null;
 
-    // If it's already a group or user JID
-    if (cleaned.includes('@s.whatsapp.net') || cleaned.includes('@g.us')) {
-      return cleaned;
+    // Group JID: digits-digits@g.us or digits@g.us
+    if (cleaned.endsWith('@g.us')) {
+      const prefix = cleaned.replace('@g.us', '');
+      if (/^[0-9-]+$/.test(prefix)) {
+        return cleaned;
+      }
+      return null;
     }
 
-    // Strip non-numeric characters (plus, dashes, spaces)
+    // Direct WhatsApp User JID: digits@s.whatsapp.net
+    if (cleaned.endsWith('@s.whatsapp.net')) {
+      const prefix = cleaned.replace('@s.whatsapp.net', '');
+      if (/^\d{7,15}$/.test(prefix)) {
+        return cleaned;
+      }
+      return null;
+    }
+
+    // Raw Phone number: extract digits (international numbers are 7-15 digits)
     const digitsOnly = cleaned.replace(/\D/g, '');
-    return `${digitsOnly}@s.whatsapp.net`;
+    if (digitsOnly.length >= 7 && digitsOnly.length <= 15) {
+      return `${digitsOnly}@s.whatsapp.net`;
+    }
+
+    return null;
   }
 }

@@ -5,15 +5,20 @@ import cors from 'cors';
 import { Server as SocketIOServer } from 'socket.io';
 import { SessionManager } from '../core/SessionManager.js';
 import { ActionDispatcher } from '../core/ActionDispatcher.js';
-import { AdbFleetBridge } from '../core/AdbFleetBridge.js';
 import { PuppeteerFleet } from '../core/PuppeteerFleet.js';
 import { setupSocketHandlers } from './socket.js';
 
 const app = express();
 const server = http.createServer(app);
+
+// Security: Configurable CORS policy
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : (process.env.NODE_ENV === 'production' ? ['http://localhost:3000'] : '*');
+
 const io = new SocketIOServer(server, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins,
     methods: ['GET', 'POST']
   }
 });
@@ -21,9 +26,22 @@ const io = new SocketIOServer(server, {
 const PORT = process.env.PORT || 3000;
 const publicDir = path.resolve(process.cwd(), 'src', 'public');
 
-// Middleware
-app.use(cors());
+// Security & Static Middleware
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
+
+// Optional Studio API Key Protection (set STUDIO_API_KEY in environment for secure remote deployments)
+const STUDIO_API_KEY = process.env.STUDIO_API_KEY;
+if (STUDIO_API_KEY) {
+  app.use('/api', (req, res, next) => {
+    const key = req.headers['authorization'] || req.headers['x-api-key'] || req.query.apiKey;
+    if (key === STUDIO_API_KEY || key === `Bearer ${STUDIO_API_KEY}`) {
+      return next();
+    }
+    return res.status(401).json({ error: 'Unauthorized: Invalid or missing STUDIO_API_KEY' });
+  });
+}
+
 app.use(express.static(publicDir));
 
 // Initialize Core Managers
@@ -98,39 +116,22 @@ app.post('/api/puppet/click', async (req, res) => {
   res.json({ success: true });
 });
 
-// ── ADB REST API ────────────────────────────────────────────────────────────
-
-// REST API Endpoints
-app.get('/api/adb/devices', (req, res) => {
-  res.json({ success: true, devices: adbBridge.getAllDevices() });
+// Single click on a specific instance (No mirroring)
+app.post('/api/puppet/single-click', async (req, res) => {
+  const { id, xPct, yPct } = req.body;
+  if (!id) return res.status(400).json({ error: 'id is required' });
+  await puppeteerFleet.singleClick(id, xPct, yPct);
+  res.json({ success: true });
 });
 
-// Live screen capture for a specific ADB device
-app.get('/api/adb/screen/:serial', async (req, res) => {
-  const { serial } = req.params;
-  const screenshot = await adbBridge.captureScreenshot(serial);
-  if (!screenshot) {
-    return res.status(503).json({ success: false, message: 'Screenshot failed or device offline' });
+// Synchronized Broadcast across all connected instances
+app.post('/api/puppet/broadcast', async (req, res) => {
+  try {
+    const result = await puppeteerFleet.broadcastMessage(req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ success: true, serial, screenshot });
-});
-
-app.post('/api/adb/tap', async (req, res) => {
-  const { xPct, yPct, targetSerials } = req.body;
-  const result = await adbBridge.mirrorTap(xPct, yPct, targetSerials);
-  res.json(result);
-});
-
-app.post('/api/adb/text', async (req, res) => {
-  const { text, targetSerials } = req.body;
-  const result = await adbBridge.mirrorText(text, targetSerials);
-  res.json(result);
-});
-
-app.post('/api/adb/key', async (req, res) => {
-  const { keyCode, targetSerials } = req.body;
-  const result = await adbBridge.mirrorKey(keyCode, targetSerials);
-  res.json(result);
 });
 
 // REST API Endpoints
