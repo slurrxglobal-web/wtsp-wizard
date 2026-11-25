@@ -13,6 +13,7 @@ yarn-error.log*
 
 # WhatsApp Multi-Session Auth Stores (CRITICAL: Never commit auth tokens)
 sessions/
+data/
 auth_info/
 auth_info_multi/
 *.data.json

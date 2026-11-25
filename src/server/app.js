@@ -6,6 +6,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { SessionManager } from '../core/SessionManager.js';
 import { ActionDispatcher } from '../core/ActionDispatcher.js';
 import { PuppeteerFleet } from '../core/PuppeteerFleet.js';
+import { AdbFleetBridge } from '../core/AdbFleetBridge.js';
 import { setupSocketHandlers } from './socket.js';
 
 const app = express();
@@ -47,10 +48,14 @@ app.use(express.static(publicDir));
 // Initialize Core Managers
 const sessionManager = new SessionManager();      // Baileys — fast broadcast (headless fallback)
 const actionDispatcher = new ActionDispatcher(sessionManager);
-const puppeteerFleet = new PuppeteerFleet();      // Real WhatsApp Web sessions (Primary)
+const puppeteerFleet = new PuppeteerFleet();      // Real WhatsApp Web sessions (Puppeteer)
+const adbBridge = new AdbFleetBridge();           // Real WhatsApp Mobile sessions (BlueStacks / ADB)
+
+// Start ADB background live screen capture
+adbBridge.startStreaming(1400);
 
 // Setup Socket.io real-time layer
-setupSocketHandlers(io, sessionManager, actionDispatcher, null, puppeteerFleet);
+setupSocketHandlers(io, sessionManager, actionDispatcher, adbBridge, puppeteerFleet);
 
 // ── Puppeteer REST API ──────────────────────────────────────────────────────
 
@@ -132,6 +137,65 @@ app.post('/api/puppet/broadcast', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── ADB / BlueStacks REST API ───────────────────────────────────────────────
+
+// Get all connected Android / BlueStacks devices
+app.get('/api/adb/devices', (req, res) => {
+  res.json({ success: true, devices: adbBridge.getAllDevices() });
+});
+
+// Scan for emulator instances and phones
+app.post('/api/adb/scan', async (req, res) => {
+  try {
+    const devices = await adbBridge.scanDevices();
+    res.json({ success: true, devices });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Mirror tap across all devices
+app.post('/api/adb/tap', async (req, res) => {
+  const { xPct, yPct, targetSerials } = req.body;
+  const result = await adbBridge.mirrorTap(xPct, yPct, targetSerials);
+  res.json(result);
+});
+
+// Single tap on specific device
+app.post('/api/adb/single-tap', async (req, res) => {
+  const { serial, xPct, yPct } = req.body;
+  const result = await adbBridge.singleTap(serial, xPct, yPct);
+  res.json(result);
+});
+
+// Mirror text typing
+app.post('/api/adb/text', async (req, res) => {
+  const { text, targetSerials } = req.body;
+  const result = await adbBridge.mirrorText(text, targetSerials);
+  res.json(result);
+});
+
+// Mirror Android key (Back: 4, Home: 3, Enter: 66, AppSwitch: 187)
+app.post('/api/adb/key', async (req, res) => {
+  const { keyCode, targetSerials } = req.body;
+  const result = await adbBridge.mirrorKey(keyCode, targetSerials);
+  res.json(result);
+});
+
+// Launch WhatsApp Mobile App directly
+app.post('/api/adb/launch-wa', async (req, res) => {
+  const { targetSerials } = req.body;
+  const result = await adbBridge.launchWhatsApp(targetSerials);
+  res.json(result);
+});
+
+// Set master device
+app.post('/api/adb/master', (req, res) => {
+  const { serial } = req.body;
+  adbBridge.setMaster(serial);
+  res.json({ success: true, master: serial });
 });
 
 // REST API Endpoints

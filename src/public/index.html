@@ -42,6 +42,35 @@
 
     <!-- Controls & Theme Selector -->
     <div class="nav-actions">
+      <!-- Fleet Mode Switcher -->
+      <div class="fleet-mode-tabs">
+        <button id="modeAndroidBtn" class="mode-tab-btn active" title="Switch to Real Android / BlueStacks Phone Farm">
+          <span>🤖 BlueStacks / Android</span>
+          <span id="androidCountBadge" class="mode-tab-badge">0</span>
+        </button>
+        <button id="modePuppetBtn" class="mode-tab-btn" title="Switch to WhatsApp Web Fleet">
+          <span>🌐 WhatsApp Web</span>
+          <span id="puppetCountBadge" class="mode-tab-badge">0</span>
+        </button>
+      </div>
+
+      <!-- Android Specific Actions -->
+      <div id="androidHeaderActions" class="header-action-group" style="display: flex; gap: 6px;">
+        <button id="scanAdbBtn" class="btn btn-secondary" title="Scan & Connect BlueStacks or Phone devices">
+          🔍 Scan ADB
+        </button>
+        <button id="launchWaBtn" class="btn btn-primary" title="Launch WhatsApp on all Android instances">
+          🚀 Open WhatsApp
+        </button>
+      </div>
+
+      <!-- Puppeteer Specific Actions -->
+      <div id="puppetHeaderActions" class="header-action-group" style="display: none; gap: 6px;">
+        <button id="cleanAllBtn" class="btn btn-secondary" title="Close all running WhatsApp sessions">Clean All</button>
+        <button id="addSingleUnitBtn" class="btn btn-secondary">+ Add Device</button>
+        <button id="addBatchUnitsBtn" class="btn btn-primary">+ Batch (5)</button>
+      </div>
+
       <!-- Theme Switcher -->
       <div class="theme-select-wrap">
         <label for="themeSelector" class="sr-only">Theme</label>
@@ -57,9 +86,6 @@
         <span>Console</span>
         <kbd class="kbd-shortcut">C</kbd>
       </button>
-      <button id="cleanAllBtn" class="btn btn-secondary" title="Close all running WhatsApp sessions">Clean All</button>
-      <button id="addSingleUnitBtn" class="btn btn-secondary">+ Add Device</button>
-      <button id="addBatchUnitsBtn" class="btn btn-primary">+ Batch (5)</button>
     </div>
   </header>
 
@@ -126,8 +152,8 @@
     <div class="main-bar">
       <div class="bar-title">
         <div class="title-with-filters">
-          <h2>Real WhatsApp Fleet</h2>
-          <span class="fleet-hint-pill">Drag &amp; drop cards to reorder</span>
+          <h2 id="mainFleetTitle">Real Android Fleet (BlueStacks)</h2>
+          <span class="fleet-hint-pill" id="fleetHintText">Real Android OS &bull; SMS Login &bull; 9:16 Mobile UI</span>
         </div>
         <span class="bar-count" id="activeFilterCount">0 Active Instances</span>
       </div>
@@ -170,11 +196,17 @@
           <div class="master-ghost-cursor" id="masterModalGhostCursor"></div>
           <img id="masterStudioScreen" class="master-stream-img" src="" alt="Master WhatsApp Stream">
           <div id="masterStudioPlaceholder" class="master-stream-placeholder">
-            <div class="unpaired-icon" style="font-size:36px;">🌐</div>
-            <p style="font-weight:600; font-size:14px; margin-top:8px;">Connecting to Master WhatsApp...</p>
+            <div class="unpaired-icon" style="font-size:36px;">📱</div>
+            <p style="font-weight:600; font-size:14px; margin-top:8px;">Connecting to Master Screen...</p>
             <p style="font-size:11px; color:var(--text-muted); margin-top:4px;">Live screen will appear shortly</p>
           </div>
         </div>
+      </div>
+      <div id="modalAndroidNav" class="android-soft-nav" style="border-radius: 0 0 10px 10px;">
+        <button class="android-nav-btn modal-adb-key" data-key="4" title="Android Back">◀ Back</button>
+        <button class="android-nav-btn modal-adb-key" data-key="3" title="Android Home">● Home</button>
+        <button class="android-nav-btn modal-adb-key" data-key="187" title="Recent Apps">■ Apps</button>
+        <button class="android-nav-btn modal-adb-key" data-key="66" title="Enter">⏎ Enter</button>
       </div>
     </div>
   </div>

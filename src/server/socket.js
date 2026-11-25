@@ -24,6 +24,14 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher, adbBri
     adbBridge.on('devices_updated', (devices) => {
       io.emit('adb_devices_update', devices);
     });
+
+    adbBridge.on('screenshot', ({ serial, screenshot }) => {
+      io.emit('adb_screenshot', { serial, screenshot });
+    });
+
+    adbBridge.on('master_changed', (masterSerial) => {
+      io.emit('adb_master_changed', { masterSerial });
+    });
   }
 
   // ── Puppeteer (Real WhatsApp Web) events ──────────────────────────────────
@@ -157,6 +165,43 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher, adbBri
       } catch (err) {
         socket.emit('operation_error', { message: `Broadcast: ${err.message}` });
       }
+    });
+
+    // ── ADB / BlueStacks socket events ──────────────────────────────────────
+
+    socket.on('adb_scan', async () => {
+      if (adbBridge) {
+        const devices = await adbBridge.scanDevices();
+        socket.emit('adb_devices_update', devices);
+      }
+    });
+
+    socket.on('adb_set_master', ({ serial }) => {
+      if (adbBridge) adbBridge.setMaster(serial);
+    });
+
+    socket.on('adb_tap', async ({ xPct, yPct }) => {
+      if (adbBridge) await adbBridge.mirrorTap(xPct, yPct);
+    });
+
+    socket.on('adb_single_tap', async ({ serial, xPct, yPct }) => {
+      if (adbBridge) await adbBridge.singleTap(serial, xPct, yPct);
+    });
+
+    socket.on('adb_text', async ({ text }) => {
+      if (adbBridge) await adbBridge.mirrorText(text);
+    });
+
+    socket.on('adb_key', async ({ keyCode }) => {
+      if (adbBridge) await adbBridge.mirrorKey(keyCode);
+    });
+
+    socket.on('adb_swipe', async ({ x1Pct, y1Pct, x2Pct, y2Pct, durationMs }) => {
+      if (adbBridge) await adbBridge.mirrorSwipe(x1Pct, y1Pct, x2Pct, y2Pct, durationMs);
+    });
+
+    socket.on('adb_launch_wa', async () => {
+      if (adbBridge) await adbBridge.launchWhatsApp();
     });
 
     // ── Baileys session events ──────────────────────────────────────────────
