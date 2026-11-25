@@ -2,33 +2,41 @@
 const socket = io();
 
 // ── State ────────────────────────────────────────────────────────────────────
-let puppetSessions    = new Map(); // id -> { id, label, status, type: 'puppeteer', isMaster }
-let displayOrder      = [];        // Array of session IDs for drag-and-drop ordering
-let masterSessionId   = null;
-let isMasterModalOpen = false;
+let puppetSessions       = new Map(); // id -> { id, label, accountName, status, type: 'puppeteer', isMaster }
+let displayOrder         = [];        // Array of session IDs for drag-and-drop ordering
+let masterSessionId      = null;
+let isMasterModalOpen    = false;
+let isFollowMouseEnabled = true;      // Master cursor mirroring toggle
 
 // Drag and drop tracking
 let draggedSessionId = null;
 
+// Smooth mouse update animation frame tracking
+let mouseRafPending = false;
+let targetCursorX   = 0;
+let targetCursorY   = 0;
+
 // ── DOM Elements ────────────────────────────────────────────────────────────
-const totalUnitsCountEl   = document.getElementById('totalUnitsCount');
-const activeUnitsCountEl  = document.getElementById('activeUnitsCount');
-const activeFilterCountEl = document.getElementById('activeFilterCount');
-const fleetStatusTextEl   = document.getElementById('fleetStatusText');
-const phoneFarmGridEl     = document.getElementById('phoneFarmGrid');
-const feedStreamEl        = document.getElementById('feedStream');
-const themeSelectorEl     = document.getElementById('themeSelector');
+const totalUnitsCountEl    = document.getElementById('totalUnitsCount');
+const activeUnitsCountEl   = document.getElementById('activeUnitsCount');
+const activeFilterCountEl  = document.getElementById('activeFilterCount');
+const fleetStatusTextEl    = document.getElementById('fleetStatusText');
+const phoneFarmGridEl      = document.getElementById('phoneFarmGrid');
+const feedStreamEl         = document.getElementById('feedStream');
+const themeSelectorEl      = document.getElementById('themeSelector');
 
 // Buttons
-const addSingleUnitBtn    = document.getElementById('addSingleUnitBtn');
-const addBatchUnitsBtn    = document.getElementById('addBatchUnitsBtn');
-const cleanAllBtn         = document.getElementById('cleanAllBtn');
-const openMasterStudioBtn = document.getElementById('openMasterStudioBtn');
+const addSingleUnitBtn     = document.getElementById('addSingleUnitBtn');
+const addBatchUnitsBtn     = document.getElementById('addBatchUnitsBtn');
+const cleanAllBtn          = document.getElementById('cleanAllBtn');
+const openMasterStudioBtn  = document.getElementById('openMasterStudioBtn');
+const toggleFollowMouseBtn = document.getElementById('toggleFollowMouseBtn');
+const modalFollowMouseBtn  = document.getElementById('modalFollowMouseBtn');
 
 // Console Drawer Elements
-const commandConsoleEl    = document.getElementById('commandConsole');
-const toggleConsoleBtn    = document.getElementById('toggleConsoleBtn');
-const collapseConsoleBtn  = document.getElementById('collapseConsoleBtn');
+const commandConsoleEl     = document.getElementById('commandConsole');
+const toggleConsoleBtn     = document.getElementById('toggleConsoleBtn');
+const collapseConsoleBtn   = document.getElementById('collapseConsoleBtn');
 
 // Broadcast Inputs
 const targetRecipientInput  = document.getElementById('targetRecipient');
@@ -68,7 +76,60 @@ function logFeed(msg) {
   feedStreamEl.textContent = `[${time}] ${msg}`;
 }
 
-// ── 3. Console Toggle ───────────────────────────────────────────────────────
+// ── 3. Follow Mouse Toggle ──────────────────────────────────────────────────
+function updateFollowMouseUI() {
+  const text = isFollowMouseEnabled ? '🎯 Follow Mouse: ON' : '🚫 Follow Mouse: OFF';
+  [toggleFollowMouseBtn, modalFollowMouseBtn].forEach(btn => {
+    if (btn) {
+      btn.textContent = text;
+      if (isFollowMouseEnabled) {
+        btn.classList.add('active-toggle');
+        btn.classList.remove('inactive-toggle');
+      } else {
+        btn.classList.remove('active-toggle');
+        btn.classList.add('inactive-toggle');
+      }
+    }
+  });
+
+  if (!isFollowMouseEnabled) {
+    document.querySelectorAll('.ghost-cursor').forEach(c => c.classList.remove('visible'));
+    if (masterModalGhostCursorEl) masterModalGhostCursorEl.style.display = 'none';
+  }
+}
+
+function toggleFollowMouse() {
+  isFollowMouseEnabled = !isFollowMouseEnabled;
+  updateFollowMouseUI();
+  logFeed(`Cursor mirroring ${isFollowMouseEnabled ? 'ENABLED' : 'DISABLED'}`);
+}
+
+if (toggleFollowMouseBtn) toggleFollowMouseBtn.addEventListener('click', toggleFollowMouse);
+if (modalFollowMouseBtn) modalFollowMouseBtn.addEventListener('click', toggleFollowMouse);
+
+// Smooth 60fps cursor dispatch using requestAnimationFrame
+function scheduleCursorUpdate(xPct, yPct) {
+  if (!isFollowMouseEnabled) return;
+  targetCursorX = xPct;
+  targetCursorY = yPct;
+
+  if (!mouseRafPending) {
+    mouseRafPending = true;
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.ghost-cursor').forEach(cursor => {
+        const card = cursor.closest('.device-card');
+        if (card && card.id !== `device-card-${masterSessionId}`) {
+          cursor.style.left = `${targetCursorX}%`;
+          cursor.style.top  = `${targetCursorY}%`;
+          cursor.classList.add('visible');
+        }
+      });
+      mouseRafPending = false;
+    });
+  }
+}
+
+// ── 4. Console Toggle ───────────────────────────────────────────────────────
 function toggleConsole() {
   if (commandConsoleEl) commandConsoleEl.classList.toggle('collapsed');
 }
@@ -82,12 +143,10 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ── 4. Grid Rendering & Drag-and-Drop System ────────────────────────────────
+// ── 5. Grid Rendering & Drag-and-Drop System ────────────────────────────────
 function syncDisplayOrder() {
   const currentIds = Array.from(puppetSessions.keys());
-  // Retain existing order for known IDs
   displayOrder = displayOrder.filter(id => puppetSessions.has(id));
-  // Add new IDs to end
   for (const id of currentIds) {
     if (!displayOrder.includes(id)) {
       displayOrder.push(id);
@@ -157,18 +216,25 @@ function renderDeviceGrid() {
     card.setAttribute('draggable', 'true');
     card.setAttribute('data-id', unit.id);
 
-    const statusLabel = unit.status === 'connected' ? 'Online'
-      : unit.status === 'qr_ready' ? 'Scan QR'
-      : unit.status === 'loading'  ? 'Loading...'
+    const isQr = (unit.status === 'qr_ready');
+    const isConn = (unit.status === 'connected');
+
+    const statusLabel = isConn ? 'Online'
+      : isQr ? 'Scan QR'
+      : unit.status === 'loading' ? 'Loading...'
       : 'Offline';
 
-    const statusTag = unit.status === 'connected' ? 'online'
-      : unit.status === 'qr_ready' ? 'standby' : 'offline';
+    const statusTag = isConn ? 'online'
+      : isQr ? 'standby' : 'offline';
+
+    const displayName = unit.accountName
+      ? `${unit.label || unit.id} (${unit.accountName})`
+      : (unit.label || unit.id);
 
     card.innerHTML = `
       <div class="device-card-header" title="Drag to reorder like a puzzle">
         <div class="instance-label">
-          <span style="font-size: 11px; font-weight: 600;">${unit.label || unit.id}</span>
+          <span style="font-size: 11px; font-weight: 600;">${displayName}</span>
           ${isMaster ? '<span class="master-indicator">MASTER</span>' : ''}
         </div>
         <span class="instance-tag tag-${statusTag}">${statusLabel}</span>
@@ -178,7 +244,7 @@ function renderDeviceGrid() {
         <div class="ghost-cursor" id="cursor-${unit.id}"></div>
         <img
           id="puppet-screen-${unit.id}"
-          class="puppet-live-screen"
+          class="puppet-live-screen ${isQr ? 'qr-zoom' : ''}"
           src=""
           alt="WhatsApp Web Live"
           style="display: none;"
@@ -188,8 +254,8 @@ function renderDeviceGrid() {
           <div class="unpaired-title">${unit.label || unit.id}</div>
           <div class="unpaired-subtitle" style="margin-top: 4px;">${
             unit.status === 'loading'   ? 'Launching Chrome & WhatsApp Web...' :
-            unit.status === 'qr_ready'  ? 'Point phone camera at QR code' :
-            unit.status === 'connected' ? 'Connected — streaming live screen...' :
+            isQr ? 'Point phone camera at QR code' :
+            isConn ? 'Connected — streaming live screen...' :
             'Initializing session'
           }</div>
         </div>
@@ -215,7 +281,7 @@ function renderDeviceGrid() {
   attachDragAndDropEvents();
 }
 
-// ── 5. Drag and Drop Reordering (Puzzle Style) ──────────────────────────────
+// ── 6. Drag and Drop Reordering (Puzzle Style) ──────────────────────────────
 function attachDragAndDropEvents() {
   const cards = document.querySelectorAll('.device-card');
 
@@ -257,7 +323,6 @@ function attachDragAndDropEvents() {
       const toIndex = displayOrder.indexOf(targetId);
 
       if (fromIndex !== -1 && toIndex !== -1) {
-        // Move dragged item to new position
         displayOrder.splice(fromIndex, 1);
         displayOrder.splice(toIndex, 0, draggedSessionId);
 
@@ -268,7 +333,7 @@ function attachDragAndDropEvents() {
   });
 }
 
-// ── 6. Interactive Events & Action Mirroring ────────────────────────────────
+// ── 7. Interactive Events & Action Mirroring ────────────────────────────────
 function attachInteractiveEvents() {
   // Set Master button
   document.querySelectorAll('.puppet-master-btn').forEach(btn => {
@@ -302,7 +367,7 @@ function attachInteractiveEvents() {
     });
   });
 
-  // Click on any card's viewport:
+  // Click & Mouse tracking on any card's viewport
   document.querySelectorAll('.puppet-viewport').forEach(vp => {
     const sessionId = vp.getAttribute('data-puppet-id');
 
@@ -331,23 +396,16 @@ function attachInteractiveEvents() {
     }, { passive: false });
   });
 
-  // Ghost Cursor Mirroring on Grid
+  // Ghost Cursor Mirroring on Grid with requestAnimationFrame
   if (masterSessionId && puppetSessions.has(masterSessionId)) {
     const masterVp = document.getElementById(`viewport-${masterSessionId}`);
     if (masterVp) {
       masterVp.addEventListener('mousemove', (e) => {
+        if (!isFollowMouseEnabled) return;
         const rect = masterVp.getBoundingClientRect();
         const xPct = ((e.clientX - rect.left) / rect.width) * 100;
         const yPct = ((e.clientY - rect.top)  / rect.height) * 100;
-
-        document.querySelectorAll('.ghost-cursor').forEach(cursor => {
-          const card = cursor.closest('.device-card');
-          if (card && card.id !== `device-card-${masterSessionId}`) {
-            cursor.style.left = `${xPct}%`;
-            cursor.style.top  = `${yPct}%`;
-            cursor.classList.add('visible');
-          }
-        });
+        scheduleCursorUpdate(xPct, yPct);
       });
 
       masterVp.addEventListener('mouseleave', () => {
@@ -357,7 +415,7 @@ function attachInteractiveEvents() {
   }
 }
 
-// ── 7. Big Pop-up Master Studio Modal Logic ─────────────────────────────────
+// ── 8. Big Pop-up Master Studio Modal Logic ─────────────────────────────────
 function openMasterStudio() {
   if (!masterSessionId) return;
   isMasterModalOpen = true;
@@ -412,22 +470,13 @@ if (masterStudioViewportEl) {
     socket.emit('puppet_scroll', { masterId: masterSessionId, xPct, yPct, deltaY: e.deltaY });
   }, { passive: false });
 
-  // Mouse move in Master Studio
+  // Mouse move in Master Studio with 60fps scheduling
   masterStudioViewportEl.addEventListener('mousemove', (e) => {
-    if (!masterSessionId) return;
+    if (!masterSessionId || !isFollowMouseEnabled) return;
     const rect = masterStudioViewportEl.getBoundingClientRect();
     const xPct = ((e.clientX - rect.left) / rect.width) * 100;
     const yPct = ((e.clientY - rect.top)  / rect.height) * 100;
-
-    // Ghost cursor on grid cards
-    document.querySelectorAll('.ghost-cursor').forEach(cursor => {
-      const card = cursor.closest('.device-card');
-      if (card && card.id !== `device-card-${masterSessionId}`) {
-        cursor.style.left = `${xPct}%`;
-        cursor.style.top  = `${yPct}%`;
-        cursor.classList.add('visible');
-      }
-    });
+    scheduleCursorUpdate(xPct, yPct);
   });
 
   masterStudioViewportEl.addEventListener('mouseleave', () => {
@@ -438,7 +487,6 @@ if (masterStudioViewportEl) {
 // Global Keypress Mirroring (Types into Master & mirrors to all slaves)
 window.addEventListener('keydown', (e) => {
   if (!masterSessionId) return;
-  // Don't intercept if user is typing in top broadcast bar
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
   if (e.key === 'Escape') {
@@ -453,7 +501,7 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// ── 8. Header Buttons (Single Add, Batch 5, Clean All) ──────────────────────
+// ── 9. Header Buttons (Single Add, Batch 5, Clean All) ──────────────────────
 if (addSingleUnitBtn) {
   addSingleUnitBtn.addEventListener('click', () => {
     const num = puppetSessions.size + 1;
@@ -504,7 +552,7 @@ if (fireBroadcastBtn) {
   });
 }
 
-// ── 9. Socket.io Event Listeners ────────────────────────────────────────────
+// ── 10. Socket.io Event Listeners ───────────────────────────────────────────
 socket.on('initial_state', ({ puppetSessions: initialPuppet }) => {
   puppetSessions.clear();
   if (initialPuppet) {
@@ -528,12 +576,21 @@ socket.on('puppet_session_removed', (id) => {
 
 // Stream real-time screenshots to card viewport & big master studio
 socket.on('puppet_screenshot', ({ id, screenshot }) => {
-  // Update card screen
   const cardImg = document.getElementById(`puppet-screen-${id}`);
   const placeholder = document.getElementById(`puppet-placeholder-${id}`);
+  const unit = puppetSessions.get(id);
+
   if (cardImg) {
     cardImg.src = screenshot;
     cardImg.style.display = 'block';
+
+    // Apply or remove smart QR zoom
+    if (unit && unit.status === 'qr_ready') {
+      cardImg.classList.add('qr-zoom');
+    } else {
+      cardImg.classList.remove('qr-zoom');
+    }
+
     if (placeholder) placeholder.style.display = 'none';
   }
 

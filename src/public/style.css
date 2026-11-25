@@ -655,6 +655,24 @@ label {
   background: #111b21;
   pointer-events: none;
   z-index: 2;
+  transition: transform 0.25s ease;
+}
+
+/* Smart QR Zoom: crops white margins and centers QR code prominently for camera scanning */
+.puppet-live-screen.qr-zoom {
+  transform: scale(1.68) translate(-10%, -2%);
+}
+
+.btn.active-toggle {
+  border-color: rgba(16, 185, 129, 0.45);
+  color: var(--status-online);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.btn.inactive-toggle {
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  opacity: 0.75;
 }
 
 .puppet-placeholder {

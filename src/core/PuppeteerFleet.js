@@ -155,27 +155,42 @@ export class PuppeteerFleet extends EventEmitter {
   _startPolling(id) {
     if (this.pollers.has(id)) return;
 
+    let tickCount = 0;
     const poll = async () => {
       const s = this.sessions.get(id);
-      if (!s || !s.page) return;
+      if (!s || !s.page || s.isCapturing) return;
 
+      const isMaster = (this.master === id);
+      tickCount++;
+
+      // Slaves refresh every 3 ticks (~3s) to save CPU/RAM
+      // Master refreshes every tick (~1s) for smooth visual feedback
+      if (!isMaster && (tickCount % 3 !== 0)) {
+        return;
+      }
+
+      s.isCapturing = true;
       try {
-        // Capture compressed JPEG screenshot
+        // Optimized JPEG quality (42 is crisp for WhatsApp text, but 60% smaller in bytes)
         const buf = await s.page.screenshot({
           type: 'jpeg',
-          quality: 55,
+          quality: 42,
           encoding: 'base64'
         });
         const dataUrl = `data:image/jpeg;base64,${buf}`;
         this.emit('screenshot', { id, screenshot: dataUrl });
 
-        // Check session status
-        await this._detectStatus(id, s);
-      } catch (_) {}
+        // Check session status periodically
+        if (tickCount % 3 === 0 || s.status === 'loading' || s.status === 'qr_ready') {
+          await this._detectStatus(id, s);
+        }
+      } catch (_) {} finally {
+        s.isCapturing = false;
+      }
     };
 
     poll(); // immediate first frame
-    const interval = setInterval(poll, SCREENSHOT_INTERVAL_MS);
+    const interval = setInterval(poll, 1000);
     this.pollers.set(id, interval);
   }
 
@@ -200,18 +215,24 @@ export class PuppeteerFleet extends EventEmitter {
                         await s.page.$('#pane-side') ||
                         await s.page.$('.two');
 
-      const prevStatus = s.status;
-
       if (chatList && s.status !== 'connected') {
         s.status = 'connected';
-        console.log(`[PuppeteerFleet][${id}] Connected — WhatsApp Web logged in`);
+
+        // Try extracting account profile name or info
+        try {
+          const profileName = await s.page.evaluate(() => {
+            const el = document.querySelector('header [title]') || document.querySelector('header span[dir="auto"]');
+            return el ? el.innerText || el.getAttribute('title') : '';
+          });
+          if (profileName) s.accountName = profileName;
+        } catch (_) {}
+
+        console.log(`[PuppeteerFleet][${id}] Connected — WhatsApp Web logged in (${s.accountName || 'Active'})`);
         this.emit('session_update', this._sanitize(id));
       } else if (qrVisible && s.status !== 'qr_ready' && s.status !== 'connected') {
         s.status = 'qr_ready';
         console.log(`[PuppeteerFleet][${id}] QR ready — waiting for phone scan`);
         this.emit('session_update', this._sanitize(id));
-      } else if (s.status === 'loading') {
-        // Still loading — no change needed
       }
     } catch (_) {}
   }
@@ -305,6 +326,7 @@ export class PuppeteerFleet extends EventEmitter {
     return {
       id: s.id,
       label: s.label,
+      accountName: s.accountName || null,
       status: s.status,
       type: 'puppeteer',
       isMaster: this.master === id,
