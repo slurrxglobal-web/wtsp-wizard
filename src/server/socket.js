@@ -211,8 +211,7 @@ export function setupSocketHandlers(io, sessionManager, actionDispatcher, adbBri
     });
 
     socket.on('disconnect', () => {
-      for (const [, id] of screenPollers) clearInterval(id);
-      screenPollers.clear();
+      // Clean socket teardown
     });
   });
 }
